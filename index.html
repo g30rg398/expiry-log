@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a5ca8">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>:root{color-scheme:light}</style>
+<title>Dairy Expiry Log</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one thumb-reachable column with three tabs pinned to the bottom edge. Urgency colors are the only loud color on the page. System fonts on purpose, so the app looks the same with no signal. */
+:root{
+  --bg:#f2f5f7; --surface:#ffffff; --ink:#12202b; --muted:#566673; --line:#d6dfe5;
+  --accent:#0a5ca8; --accent-ink:#ffffff; --accent-soft:#e1edf8; --toast-link:#9cd0ff;
+  --expired:#a8231b; --expired-soft:#fbe4e1;
+  --today:#a84300; --today-soft:#fde8d6;
+  --soon:#6f5700; --soon-soft:#f7edc4;
+  --ok:#256240; --ok-soft:#dff0e6;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1820; --surface:#16242e; --ink:#e6eef3; --muted:#9db0bd; --line:#2a3b47;
+    --accent:#6db3f2; --accent-ink:#08202f; --accent-soft:#1b3447; --toast-link:#0a5ca8;
+    --expired:#ff9a90; --expired-soft:#42201d;
+    --today:#ffb27a; --today-soft:#412b17;
+    --soon:#ecd26b; --soon-soft:#38320f;
+    --ok:#85d6a6; --ok-soft:#17352b;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1820; --surface:#16242e; --ink:#e6eef3; --muted:#9db0bd; --line:#2a3b47;
+  --accent:#6db3f2; --accent-ink:#08202f; --accent-soft:#1b3447; --toast-link:#0a5ca8;
+  --expired:#ff9a90; --expired-soft:#42201d;
+  --today:#ffb27a; --today-soft:#412b17;
+  --soon:#ecd26b; --soon-soft:#38320f;
+  --ok:#85d6a6; --ok-soft:#17352b;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;min-height:100%}
+body{
+  background:var(--bg);color:var(--ink);font:16px/1.4 var(--font);
+  padding-block:12px 100px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  -webkit-text-size-adjust:100%;
+}
+.app{max-width:560px;margin:0 auto}
+.top{padding:8px 0 4px}
+h1{font-size:1.7rem;line-height:1.15;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.sub{margin:4px 0 0;color:var(--muted);font-size:.95rem}
+h2,h3,p{margin-block:0}
+
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.pill{padding:6px 11px;border-radius:999px;font-weight:700;font-size:.85rem;font-variant-numeric:tabular-nums;background:var(--accent-soft);color:var(--accent)}
+.pill.expired{background:var(--expired-soft);color:var(--expired)}
+.pill.today{background:var(--today-soft);color:var(--today)}
+.pill.soon{background:var(--soon-soft);color:var(--soon)}
+
+.toolbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:14px 0 0}
+.toolbar label{font-size:.85rem;color:var(--muted);font-weight:600}
+.toolbar select{width:auto;min-height:40px;padding:0 10px;margin-left:6px}
+
+.group{margin:20px 0 0}
+.group h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-bottom:8px;display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.card-top{display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
+.card-main{min-width:0;flex:1}
+.card h3{font-size:1.05rem;line-height:1.25;overflow-wrap:anywhere}
+.meta{margin-top:4px;color:var(--muted);font-size:.9rem;font-variant-numeric:tabular-nums}
+.badge{flex:none;padding:5px 10px;border-radius:8px;font-weight:700;font-size:.85rem;white-space:nowrap;font-variant-numeric:tabular-nums}
+.badge.expired{background:var(--expired-soft);color:var(--expired)}
+.badge.today{background:var(--today-soft);color:var(--today)}
+.badge.soon{background:var(--soon-soft);color:var(--soon)}
+.badge.ok{background:var(--ok-soft);color:var(--ok)}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+
+.btn{font:inherit;font-weight:600;min-height:48px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+.btn.big{width:100%;min-height:54px;font-size:1.05rem}
+.btn.small{min-height:40px;padding:0 12px;font-size:.9rem}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+.form{margin-top:16px}
+.field{margin:0 0 18px}
+.lbl{display:block;font-size:.78rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+input,select{font:inherit;width:100%;min-height:50px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.row{display:flex;gap:8px}
+.row input{flex:1;min-width:0}
+.row .btn{flex:none}
+.seg{display:flex;gap:6px;margin-bottom:8px}
+.seg label{flex:1;position:relative}
+.seg input{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;cursor:pointer}
+.seg span{display:block;text-align:center;padding:12px 4px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-weight:600;font-size:.9rem}
+.seg input:checked+span{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.seg input:focus-visible+span{outline:3px solid var(--accent);outline-offset:2px}
+.stepper{display:grid;grid-template-columns:56px 1fr 56px;gap:8px}
+.stepper .btn{padding:0;font-size:1.5rem}
+.stepper input{text-align:center;font-weight:700;font-size:1.2rem;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-size:.9rem;padding:8px 12px;min-height:40px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;max-width:100%;overflow-wrap:anywhere;text-align:left}
+
+.note{background:var(--accent-soft);border-radius:10px;padding:10px 12px;font-size:.9rem;display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:14px}
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:22px 18px;text-align:center;margin-top:18px}
+.empty h2{font-size:1.1rem;margin-bottom:6px}
+.empty p{color:var(--muted);margin-bottom:14px}
+.empty .btns{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.stat b{display:block;font-size:1.6rem;font-variant-numeric:tabular-nums;line-height:1.1}
+.stat span{font-size:.85rem;color:var(--muted)}
+.hrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+.hrow .card-main{min-width:0}
+.tag{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:6px;margin-right:6px;background:var(--accent-soft);color:var(--accent)}
+.tag.pulled{background:var(--today-soft);color:var(--today)}
+.tag.sold{background:var(--ok-soft);color:var(--ok)}
+.sec{margin-top:26px}
+.sec h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-bottom:6px}
+.sec p{color:var(--muted);font-size:.9rem;margin-bottom:10px}
+.sec .btns{display:flex;gap:8px;flex-wrap:wrap}
+
+.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;gap:6px;background:var(--surface);border-top:1px solid var(--line);z-index:5;
+  padding:6px max(16px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.tabs a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:56px;color:var(--muted);text-decoration:none;font-size:.78rem;font-weight:700;border-radius:10px}
+.tabs a[aria-current="page"]{color:var(--accent);background:var(--accent-soft)}
+.tabs svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(86px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;width:max-content;max-width:calc(100% - 32px);display:flex;gap:16px;align-items:center;z-index:8;font-weight:600;font-size:.95rem}
+.toast button{font:inherit;font-weight:700;background:none;border:0;color:var(--toast-link);cursor:pointer;padding:6px 4px}
+
+.scanner{position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column}
+.scanner video{flex:1;min-height:0;width:100%;object-fit:cover}
+.scan-bar{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));background:#000;color:#fff;font-weight:600}
+.scan-bar .btn{background:#fff;color:#000;border-color:#fff}
+@media (prefers-reduced-motion:no-preference){.card{transition:opacity .15s}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1 id="title">Pull list</h1>
+    <p id="subtitle" class="sub"></p>
+  </header>
+  <main id="view"></main>
+</div>
+
+<nav class="tabs" aria-label="Sections">
+  <a href="#pull" data-tab="pull">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>
+    Pull list
+  </a>
+  <a href="#receive" data-tab="receive">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8l8-4 8 4v8l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v8"/></svg>
+    Receive
+  </a>
+  <a href="#history" data-tab="history">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>
+    History
+  </a>
+</nav>
+
+<div id="scanner" class="scanner" hidden>
+  <video id="vid" playsinline muted></video>
+  <div class="scan-bar"><span>Point at the barcode</span><button type="button" id="scan-close" class="btn">Cancel</button></div>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script>
+(function(){
+'use strict';
+var KEY='dairy-expiry-v1';
+var state={products:{},batches:[],recent:[],settings:{window:3,dateType:'Sell by'}};
+var view=document.getElementById('view');
+var titleEl=document.getElementById('title');
+var subEl=document.getElementById('subtitle');
+var toastEl=document.getElementById('toast');
+var showAll=false,toastTimer=null,scanStream=null,scanTimer=null;
+
+function load(){
+  try{
+    var s=localStorage.getItem(KEY);
+    if(s){
+      var o=JSON.parse(s);
+      state.products=o.products||{};
+      state.batches=Array.isArray(o.batches)?o.batches:[];
+      state.recent=Array.isArray(o.recent)?o.recent:[];
+      state.settings=Object.assign({window:3,dateType:'Sell by'},o.settings||{});
+    }
+  }catch(e){}
+}
+var saveWarned=false;
+function save(){
+  try{localStorage.setItem(KEY,JSON.stringify(state));}
+  catch(e){ if(!saveWarned){saveWarned=true;toast('Could not save on this device. Export a backup.');} }
+}
+
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function startOfToday(){var n=new Date();return new Date(n.getFullYear(),n.getMonth(),n.getDate());}
+function parseD(s){var p=s.split('-').map(Number);return new Date(p[0],p[1]-1,p[2]);}
+function daysLeft(s){return Math.round((parseD(s)-startOfToday())/864e5);}
+function pad(n){return String(n).padStart(2,'0');}
+function toISO(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+function fmtDate(s){return parseD(s).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function plural(n,w){return n+' '+w+(n===1?'':'s');}
+function tone(d){return d<0?'expired':d===0?'today':d<=3?'soon':'ok';}
+function badgeText(d){return d<0?plural(-d,'day')+' past':d===0?'Today':d===1?'Tomorrow':'In '+d+' days';}
+
+function toast(msg,undoFn){
+  clearTimeout(toastTimer);
+  toastEl.innerHTML='<span>'+esc(msg)+'</span>'+(undoFn?'<button type="button" id="undo">Undo</button>':'');
+  toastEl.hidden=false;
+  if(undoFn){document.getElementById('undo').onclick=function(){undoFn();toastEl.hidden=true;};}
+  toastTimer=setTimeout(function(){toastEl.hidden=true;},undoFn?6000:3000);
+}
+
+/* ---------- Pull list ---------- */
+var GROUP_TITLES={expired:'Expired: pull now',today:'Expires today',tomorrow:'Expires tomorrow',later:'Coming up'};
+function groupOf(d){return d<0?'expired':d===0?'today':d===1?'tomorrow':'later';}
+
+function renderPull(){
+  titleEl.textContent='Pull list';
+  subEl.textContent=new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});
+  var w=Number(state.settings.window)||3;
+  var active=state.batches.filter(function(b){return b.status==='active';}).sort(function(a,b){
+    return a.expiry.localeCompare(b.expiry)||a.name.localeCompare(b.name);
+  });
+  var hasSamples=state.batches.some(function(b){return b.sample;});
+  if(!active.length){
+    view.innerHTML='<div class="empty"><h2>Nothing on the list yet</h2><p>Add each batch from the Receive tab as you shelve a delivery. Anything close to its date shows up here, oldest first.</p><div class="btns"><a class="btn primary" style="display:inline-flex;align-items:center;text-decoration:none" href="#receive">Add a batch</a><button type="button" class="btn" id="sample">Load sample data</button></div></div>'+
+      (hasSamples?'':'');
+    var sb=document.getElementById('sample'); if(sb) sb.onclick=addSamples;
+    return;
+  }
+  var counts={expired:0,today:0,tomorrow:0};
+  active.forEach(function(b){var g=groupOf(daysLeft(b.expiry));if(counts[g]!==undefined)counts[g]++;});
+  var shown=active.filter(function(b){var d=daysLeft(b.expiry);return showAll||d<=w;});
+  var hidden=active.length-shown.length;
+  var html='<div class="pills">'+
+    (counts.expired?'<span class="pill expired">'+counts.expired+' expired</span>':'')+
+    (counts.today?'<span class="pill today">'+counts.today+' today</span>':'')+
+    (counts.tomorrow?'<span class="pill soon">'+counts.tomorrow+' tomorrow</span>':'')+
+    '<span class="pill">'+plural(active.length,'batch')+' on hand</span></div>';
+  if(hasSamples){
+    html+='<div class="note"><span>Showing sample data.</span><button type="button" class="btn small" id="rm-samples">Remove samples</button></div>';
+  }
+  html+='<div class="toolbar"><label>Show up to <select id="win" aria-label="How far ahead to show">'+
+    [[1,'tomorrow'],[3,'3 days'],[7,'1 week'],[14,'2 weeks']].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===w?' selected':'')+'>'+o[1]+'</option>';}).join('')+
+    '</select></label><button type="button" class="chip" id="toggle-all">'+(showAll?'Hide later batches':'Show everything')+'</button></div>';
+  var order=['expired','today','tomorrow','later'];
+  var any=false;
+  order.forEach(function(g){
+    var items=shown.filter(function(b){return groupOf(daysLeft(b.expiry))===g;});
+    if(!items.length)return;
+    any=true;
+    html+='<section class="group"><h2><span>'+GROUP_TITLES[g]+'</span><span>'+plural(items.length,'batch')+'</span></h2>'+
+      items.map(cardHtml).join('')+'</section>';
+  });
+  if(!any){html+='<div class="empty"><h2>All clear for now</h2><p>No batches expire in this window.</p></div>';}
+  if(hidden&&!showAll){html+='<p class="sub" style="margin-top:14px">'+plural(hidden,'later batch')+' hidden.</p>';}
+  view.innerHTML=html;
+  document.getElementById('win').onchange=function(e){state.settings.window=Number(e.target.value);save();renderPull();};
+  document.getElementById('toggle-all').onclick=function(){showAll=!showAll;renderPull();};
+  var rm=document.getElementById('rm-samples'); if(rm) rm.onclick=removeSamples;
+  view.querySelectorAll('[data-act]').forEach(function(btn){
+    btn.onclick=function(){resolve(btn.getAttribute('data-id'),btn.getAttribute('data-act'));};
+  });
+}
+function cardHtml(b){
+  var d=daysLeft(b.expiry);
+  return '<article class="card"><div class="card-top"><div class="card-main"><h3>'+esc(b.name)+'</h3>'+
+    '<p class="meta">'+esc(b.dateType||'Sell by')+' '+fmtDate(b.expiry)+' · '+plural(b.cases,'case')+'</p></div>'+
+    '<span class="badge '+tone(d)+'">'+badgeText(d)+'</span></div>'+
+    '<div class="actions"><button type="button" class="btn" data-act="pulled" data-id="'+b.id+'">Pulled</button>'+
+    '<button type="button" class="btn" data-act="sold" data-id="'+b.id+'">Sold out</button></div></article>';
+}
+function findBatch(id){for(var i=0;i<state.batches.length;i++){if(state.batches[i].id===id)return state.batches[i];}return null;}
+function resolve(id,act){
+  var b=findBatch(id); if(!b)return;
+  b.status=act; b.resolvedAt=Date.now(); save(); renderPull();
+  toast(b.name+': '+(act==='pulled'?'pulled':'sold out'),function(){b.status='active';delete b.resolvedAt;save();renderPull();});
+}
+
+/* ---------- Samples ---------- */
+function addSamples(){
+  var t=startOfToday();
+  function iso(n){var d=new Date(t);d.setDate(d.getDate()+n);return toISO(d);}
+  var rows=[
+    ['0000000000017','Whole milk, 1 gal',-1,3,'Sell by'],
+    ['0000000000024','Greek yogurt, 32 oz',0,2,'Use by'],
+    ['0000000000031','Butter, salted, 1 lb',1,4,'Best by'],
+    ['0000000000048','Shredded cheddar, 8 oz',2,6,'Best by'],
+    ['0000000000055','Heavy cream, 1 pt',5,2,'Use by'],
+    ['0000000000062','Cottage cheese, 16 oz',9,3,'Sell by']
+  ];
+  rows.forEach(function(r){
+    state.batches.push({id:uid(),barcode:r[0],name:r[1],expiry:iso(r[2]),cases:r[3],dateType:r[4],status:'active',createdAt:Date.now(),sample:true});
+  });
+  save(); renderPull();
+}
+function removeSamples(){
+  state.batches=state.batches.filter(function(b){return !b.sample;});
+  save(); route(false); toast('Sample data removed');
+}
+
+/* ---------- Receive ---------- */
+function renderReceive(){
+  titleEl.textContent='Receive delivery';
+  subEl.textContent='Log each batch as you shelve it.';
+  var rec=state.recent.slice(0,8);
+  var names={};Object.keys(state.products).forEach(function(k){names[state.products[k]]=1;});
+  var dt=state.settings.dateType||'Sell by';
+  view.innerHTML='<form id="f" class="form" autocomplete="off">'+
+    (rec.length?'<div class="field"><span class="lbl">Recent products</span><div class="chips">'+rec.map(function(r,i){return '<button type="button" class="chip" data-r="'+i+'">'+esc(r.name)+'</button>';}).join('')+'</div></div>':'')+
+    '<div class="field"><label class="lbl" for="bc">Barcode</label><div class="row"><input id="bc" inputmode="numeric" placeholder="Scan or type"><button type="button" class="btn ghost" id="scan">Scan</button></div></div>'+
+    '<div class="field"><label class="lbl" for="nm">Product</label><input id="nm" list="plist" placeholder="Whole milk, 1 gal" required><datalist id="plist">'+Object.keys(names).map(function(n){return '<option value="'+esc(n)+'">';}).join('')+'</datalist></div>'+
+    '<div class="field"><span class="lbl">Date on package</span><div class="seg" role="radiogroup" aria-label="Date type">'+
+      ['Sell by','Use by','Best by'].map(function(t){return '<label><input type="radio" name="dt" value="'+t+'"'+(t===dt?' checked':'')+'><span>'+t+'</span></label>';}).join('')+
+    '</div><input id="ex" type="date" required aria-label="Expiration date"></div>'+
+    '<div class="field"><label class="lbl" for="cs">Cases</label><div class="stepper"><button type="button" class="btn" id="minus" aria-label="Fewer cases">&minus;</button><input id="cs" type="number" inputmode="numeric" min="1" value="1"><button type="button" class="btn" id="plus" aria-label="More cases">+</button></div></div>'+
+    '<button class="btn primary big" type="submit">Add batch</button></form>';
+  var bc=document.getElementById('bc'),nm=document.getElementById('nm'),ex=document.getElementById('ex'),cs=document.getElementById('cs');
+  function fillFromBarcode(){var p=state.products[bc.value.trim()];if(p){nm.value=p;}}
+  bc.onchange=fillFromBarcode;
+  document.getElementById('minus').onclick=function(){cs.value=Math.max(1,(parseInt(cs.value,10)||1)-1);};
+  document.getElementById('plus').onclick=function(){cs.value=(parseInt(cs.value,10)||0)+1;};
+  document.getElementById('scan').onclick=function(){startScan(function(code){bc.value=code;fillFromBarcode();if(!nm.value){nm.focus();}else{ex.focus();}});};
+  view.querySelectorAll('[data-r]').forEach(function(btn){
+    btn.onclick=function(){var r=state.recent[Number(btn.getAttribute('data-r'))];bc.value=r.barcode||'';nm.value=r.name;ex.focus();};
+  });
+  view.querySelectorAll('input[name="dt"]').forEach(function(r){r.onchange=function(){state.settings.dateType=r.value;save();};});
+  document.getElementById('f').onsubmit=function(e){
+    e.preventDefault();
+    var name=nm.value.trim(),code=bc.value.trim(),expiry=ex.value,cases=parseInt(cs.value,10)||0;
+    if(!name||!expiry||cases<1){toast('Add a product, a date, and at least 1 case.');return;}
+    var type=(view.querySelector('input[name="dt"]:checked')||{}).value||'Sell by';
+    var key=(code||name).toLowerCase();
+    var existing=state.batches.filter(function(b){return b.status==='active'&&b.expiry===expiry&&((b.barcode||b.name).toLowerCase()===key);})[0];
+    var msg;
+    if(existing){existing.cases+=cases;msg='Added to existing batch: '+plural(existing.cases,'case')+' now';}
+    else{state.batches.push({id:uid(),barcode:code,name:name,expiry:expiry,cases:cases,dateType:type,status:'active',createdAt:Date.now()});msg='Added: '+name;}
+    if(code){state.products[code]=name;}
+    state.recent=[{barcode:code,name:name}].concat(state.recent.filter(function(r){return r.name!==name;})).slice(0,8);
+    save(); renderReceive(); toast(msg);
+  };
+}
+
+/* ---------- Barcode scanner (Chrome on Android) ---------- */
+function stopScan(){
+  clearTimeout(scanTimer);
+  if(scanStream){scanStream.getTracks().forEach(function(t){t.stop();});scanStream=null;}
+  document.getElementById('scanner').hidden=true;
+}
+function startScan(onCode){
+  if(!('BarcodeDetector' in window)||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    toast('Scanning is not available here. Type the barcode.');return;
+  }
+  var vid=document.getElementById('vid');
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}).then(function(stream){
+    scanStream=stream; vid.srcObject=stream;
+    document.getElementById('scanner').hidden=false;
+    return vid.play();
+  }).then(function(){
+    var det=new BarcodeDetector({formats:['ean_13','upc_a','upc_e','ean_8']});
+    (function tick(){
+      if(!scanStream)return;
+      det.detect(vid).then(function(codes){
+        if(codes.length){var v=codes[0].rawValue;stopScan();onCode(v);}
+        else{scanTimer=setTimeout(tick,200);}
+      }).catch(function(){scanTimer=setTimeout(tick,400);});
+    })();
+  }).catch(function(){stopScan();toast('Camera unavailable. Type the barcode.');});
+}
+document.getElementById('scan-close').onclick=stopScan;
+
+/* ---------- History and backup ---------- */
+function renderHistory(){
+  titleEl.textContent='History';
+  subEl.textContent='What you pulled or sold out. Stored on this phone only.';
+  var done=state.batches.filter(function(b){return b.status!=='active';}).sort(function(a,b){return (b.resolvedAt||0)-(a.resolvedAt||0);});
+  var weekAgo=Date.now()-7*864e5;
+  var pulledCases=0,soldBatches=0;
+  done.forEach(function(b){
+    if((b.resolvedAt||0)>=weekAgo){ if(b.status==='pulled')pulledCases+=b.cases; else soldBatches++; }
+  });
+  var html='<div class="stats"><div class="stat"><b>'+pulledCases+'</b><span>cases pulled, last 7 days</span></div><div class="stat"><b>'+soldBatches+'</b><span>batches sold out, last 7 days</span></div></div>';
+  if(!done.length){html+='<div class="empty"><h2>No history yet</h2><p>Batches you mark as pulled or sold out appear here.</p></div>';}
+  else{
+    html+='<div style="margin-top:12px">'+done.slice(0,60).map(function(b){
+      return '<div class="hrow"><div class="card-main"><h3>'+esc(b.name)+'</h3><p class="meta"><span class="tag '+b.status+'">'+(b.status==='pulled'?'Pulled':'Sold out')+'</span>'+esc(b.dateType||'Sell by')+' '+fmtDate(b.expiry)+' · '+plural(b.cases,'case')+'</p></div><button type="button" class="btn small" data-restore="'+b.id+'">Restore</button></div>';
+    }).join('')+'</div>';
+  }
+  html+='<section class="sec"><h2>Backup</h2><p>Your data lives only in this browser. Export a file now and then, and import it to move to a new phone.</p><div class="btns"><button type="button" class="btn" id="export">Export backup</button><button type="button" class="btn" id="import">Import backup</button></div><input type="file" id="file" accept="application/json,.json" hidden></section>';
+  view.innerHTML=html;
+  view.querySelectorAll('[data-restore]').forEach(function(btn){
+    btn.onclick=function(){var b=findBatch(btn.getAttribute('data-restore'));if(b){b.status='active';delete b.resolvedAt;save();renderHistory();toast('Restored to the pull list');}};
+  });
+  document.getElementById('export').onclick=exportData;
+  var file=document.getElementById('file');
+  document.getElementById('import').onclick=function(){file.click();};
+  file.onchange=function(){
+    var f=file.files&&file.files[0]; if(!f)return;
+    var r=new FileReader();
+    r.onload=function(){
+      try{
+        var o=JSON.parse(r.result);
+        if(!o||!Array.isArray(o.batches))throw new Error('bad');
+        var have={};state.batches.forEach(function(b){have[b.id]=1;});
+        var n=0;
+        o.batches.forEach(function(b){if(b&&b.id&&b.name&&b.expiry&&!have[b.id]){state.batches.push(b);n++;}});
+        Object.assign(state.products,o.products||{});
+        save(); renderHistory(); toast('Imported '+plural(n,'batch'));
+      }catch(e){toast('That file is not an expiry log backup.');}
+    };
+    r.readAsText(f);
+  };
+}
+function exportData(){
+  try{
+    var blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download='expiry-log-'+toISO(new Date())+'.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
+    toast('Backup requested. Check your Downloads.');
+  }catch(e){toast('Export did not work in this browser.');}
+}
+
+/* ---------- Routing ---------- */
+function route(scroll){
+  var h=(location.hash||'#pull').slice(1);
+  var tab=(h==='receive'||h==='history')?h:'pull';
+  document.querySelectorAll('.tabs a').forEach(function(a){
+    if(a.getAttribute('data-tab')===tab)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');
+  });
+  if(tab==='pull')renderPull();else if(tab==='receive')renderReceive();else renderHistory();
+  if(scroll!==false)window.scrollTo(0,0);
+}
+window.addEventListener('hashchange',function(){stopScan();route(true);});
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&(location.hash||'#pull')==='#pull')renderPull();});
+load();
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(e){}
+route(false);
+})();
+</script>
+<script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
+</body>
+</html>
