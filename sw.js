@@ -1,6 +1,6 @@
 // Offline cache for the Dairy Expiry Log. Serves the saved copy first, then refreshes it in the background,
 // so a new version of the app arrives the next time you open it with a connection.
-const CACHE = 'expiry-log-v1';
+const CACHE = 'expiry-log-v3';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -17,6 +17,8 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  // Leave online lookups (Open Food Facts) alone; only handle this app's own files.
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
     caches.open(CACHE).then(async (cache) => {
       const hit = await cache.match(e.request);

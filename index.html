@@ -94,7 +94,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{ou
 .lbl{display:block;font-size:.78rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
 input,select{font:inherit;width:100%;min-height:50px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .row{display:flex;gap:8px}
-.row input{flex:1;min-width:0}
+.row input,.row select{flex:1;min-width:0}
 .row .btn{flex:none}
 .seg{display:flex;gap:6px;margin-bottom:8px}
 .seg label{flex:1;position:relative}
@@ -108,6 +108,11 @@ input,select{font:inherit;width:100%;min-height:50px;padding:0 12px;border-radiu
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{font:inherit;font-size:.9rem;padding:8px 12px;min-height:40px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;max-width:100%;overflow-wrap:anywhere;text-align:left}
 
+.irow{font:inherit;color:inherit;background:none;border:0;padding:0;width:100%;min-height:44px;display:flex;gap:12px;align-items:center;justify-content:space-between;text-align:left;cursor:pointer}
+.editor{margin-top:12px;padding-top:14px;border-top:1px solid var(--line)}
+.det{margin-top:16px}
+.det summary{cursor:pointer;font-weight:600;min-height:44px;display:flex;align-items:center;color:var(--accent)}
+.det .field{margin-top:12px}
 .note{background:var(--accent-soft);border-radius:10px;padding:10px 12px;font-size:.9rem;display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:14px}
 .empty{background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:22px 18px;text-align:center;margin-top:18px}
 .empty h2{font-size:1.1rem;margin-bottom:6px}
@@ -178,7 +183,7 @@ input,select{font:inherit;width:100%;min-height:50px;padding:0 12px;border-radiu
 (function(){
 'use strict';
 var KEY='dairy-expiry-v1';
-var state={products:{},batches:[],recent:[],settings:{window:3,dateType:'Sell by'}};
+var state={products:{},batches:[],recent:[],vendors:{},seeded:false,settings:{window:3,dateType:'Sell by'}};
 var view=document.getElementById('view');
 var titleEl=document.getElementById('title');
 var subEl=document.getElementById('subtitle');
@@ -194,6 +199,9 @@ function load(){
       state.batches=Array.isArray(o.batches)?o.batches:[];
       state.recent=Array.isArray(o.recent)?o.recent:[];
       state.settings=Object.assign({window:3,dateType:'Sell by'},o.settings||{});
+      state.vendors=(o.vendors&&typeof o.vendors==='object')?o.vendors:{};
+      state.seeded=!!o.seeded;
+      var np={};Object.keys(state.products).forEach(function(k){var nk=norm(k);if(nk)np[nk]=state.products[k];});state.products=np;
     }
   }catch(e){}
 }
@@ -204,6 +212,107 @@ function save(){
 }
 
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+/* Barcodes: keep digits only and drop leading zeros, so a 12-digit UPC and its 13-digit EAN form match the same product. */
+function norm(s){return String(s||'').replace(/\D/g,'').replace(/^0+/,'');}
+/* Look a barcode up in Open Food Facts. Resolves to {status:'found',name}, {status:'missing'} or {status:'error'}. */
+function lookupOFF(code){
+  var ctl=('AbortController' in window)?new AbortController():null;
+  var t=setTimeout(function(){if(ctl)ctl.abort();},6000);
+  return fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields=product_name,brands,quantity',ctl?{signal:ctl.signal}:{})
+    .then(function(r){clearTimeout(t);if(r.status===404)return null;if(!r.ok)throw new Error('http');return r.json();})
+    .then(function(j){
+      if(!j||j.status!==1||!j.product)return {status:'missing'};
+      var p=j.product,nm=String(p.product_name||'').trim();
+      if(!nm)return {status:'missing'};
+      var brand=String(p.brands||'').split(',')[0].trim();
+      if(brand&&nm.toLowerCase().indexOf(brand.toLowerCase())<0)nm=brand+' '+nm;
+      if(p.quantity)nm+=', '+String(p.quantity).trim();
+      return {status:'found',name:nm.slice(0,80)};
+    })
+    .catch(function(){clearTimeout(t);return {status:'error'};});
+}
+/* Read a product list saved as CSV. Finds the barcode column by its contents and the name column by its header or text. */
+function parseProductCSV(text){
+  text=String(text).replace(/^﻿/,'');
+  var first=text.split(/\r?\n/)[0]||'',delim=',',best=0;
+  [',',';','\t','|'].forEach(function(d){var c=first.split(d).length;if(c>best){best=c;delim=d;}});
+  var rows=[],row=[],cell='',q=false,i,ch;
+  function flush(){row.push(cell);cell='';if(row.some(function(c){return c.trim();}))rows.push(row);row=[];}
+  for(i=0;i<text.length;i++){
+    ch=text[i];
+    if(q){if(ch==='"'){if(text[i+1]==='"'){cell+='"';i++;}else{q=false;}}else{cell+=ch;}}
+    else if(ch==='"'){q=true;}
+    else if(ch===delim){row.push(cell);cell='';}
+    else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&text[i+1]==='\n')i++;flush();}
+    else{cell+=ch;}
+  }
+  if(cell||row.length)flush();
+  if(!rows.length)return {pairs:[],skipped:0};
+  function isCode(s){s=String(s||'');if(!/^[\d\s-]+$/.test(s))return false;var n=s.replace(/\D/g,'').length;return n>=8&&n<=14;}
+  var cols=0;rows.forEach(function(r){if(r.length>cols)cols=r.length;});
+  var bc=-1,bestN=0,c,n;
+  for(c=0;c<cols;c++){n=0;rows.forEach(function(r){if(isCode(r[c]))n++;});if(n>bestN){bestN=n;bc=c;}}
+  if(bc<0)return {pairs:[],skipped:rows.length};
+  var nc=-1,bestS=-1,s;
+  for(c=0;c<cols;c++){
+    if(c===bc)continue;
+    s=0;rows.forEach(function(r){if(/[A-Za-z]/.test(r[c]||''))s++;});
+    if(/name|desc|item|product/i.test(rows[0][c]||''))s+=100000;
+    if(s>bestS){bestS=s;nc=c;}
+  }
+  if(nc<0)return {pairs:[],skipped:rows.length};
+  var pairs=[],skipped=0;
+  rows.forEach(function(r,idx){
+    if(!isCode(r[bc])){if(idx>0)skipped++;return;}
+    var name=String(r[nc]||'').trim();
+    if(!name){skipped++;return;}
+    pairs.push([norm(r[bc]),name.slice(0,80)]);
+  });
+  return {pairs:pairs,skipped:skipped};
+}
+/*END-PARSE*/
+function iKey(s){return String(s||'').trim().toUpperCase();}
+function slug(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||('v'+Date.now().toString(36));}
+function qtyText(b){var t=plural(b.cases,'case');return b.perCase?t+' ('+plural(b.cases*b.perCase,'piece')+')':t;}
+function batchKey(b){return norm(b.barcode)||(b.vendorId?b.vendorId+':'+iKey(b.itemId):String(b.name||'').toLowerCase());}
+/* Dairy items read from the first two invoices. Pieces per case come from the invoice text (EcoMeal) or the handwritten counts (Derle Farms). */
+var SEED=[
+  {name:'Derle Farms',items:[
+    ['202','Whole milk, gallon',4],['215','2% milk, gallon',4],['289','Whole milk, half gallon',9],
+    ['2230','1% milk, gallon',4],['2555','Whole milk, quart',16],['2831','1% milk, half gallon',9]]},
+  {name:'EcoMeal Organic',items:[
+    ['5464','MapleHill whole milk, 59 oz',6],
+    ['1025','EcoMeal Golden Yolk white eggs, dozen',15],['1056','EcoMeal large cage-free omega eggs, dozen',15],
+    ['1129','EcoMeal jumbo organic eggs, dozen',12],['3289','Family Tree jumbo organic eggs, dozen',12],
+    ['C1459','Chobani plain 0%, 32 oz',6],['C1460','Chobani plain 2% low fat, 32 oz',6],['C1461','Chobani plain 5%, 32 oz',6],
+    ['C001','Chobani plain nonfat, 5.3 oz',12],['C1926','Chobani zero sugar mixed berry, 5.3 oz',12],
+    ['C1930','Chobani zero sugar vanilla, 5.3 oz',12],['C1543','Chobani Flip almond coco loco, 4.5 oz',12],
+    ['C1474','Chobani 20g protein vanilla, 6.7 oz',12],['C1475','Chobani 20g protein raspberry lemon, 6.7 oz',12],
+    ['C949','Chobani drink Mangolicious, 7 oz',8],['C951','Chobani drink StrawNana, 7 oz',8],
+    ['C1116','Chobani drink 20g strawberry cream, 10 oz',8],['C1118','Chobani drink 20g mixed berry vanilla',8],
+    ['C1501','Chobani drink 20g peach cream, 10 oz',8],['C1502','Chobani drink 20g cherry vanilla, 10 oz',8],
+    ['200060','STNY YoKids smoothie very berry, 6-pack',4],['200341','STNY YoKids smoothie strawberry banana, 6-pack',4],
+    ['200360','STNY YoKids pouch strawberry banana, 3.5 oz',8],['200988','STNY YoKids pouch strawberry, 3.7 oz',8]]}
+];
+function seedVendors(){
+  if(state.seeded)return;
+  SEED.forEach(function(v){
+    var id=slug(v.name);
+    if(state.vendors[id])return;
+    var items={};
+    v.items.forEach(function(r){var k=iKey(r[0]);items[k]={id:k,name:r[1],perCase:r[2],barcode:''};});
+    state.vendors[id]={name:v.name,items:items};
+  });
+  state.seeded=true;save();
+}
+function mergeVendors(vs){
+  if(!vs||typeof vs!=='object')return;
+  Object.keys(vs).forEach(function(id){
+    var v=vs[id];if(!v||!v.items)return;
+    if(!state.vendors[id]){state.vendors[id]=v;return;}
+    Object.keys(v.items).forEach(function(k){if(!state.vendors[id].items[k])state.vendors[id].items[k]=v.items[k];});
+  });
+}
 function startOfToday(){var n=new Date();return new Date(n.getFullYear(),n.getMonth(),n.getDate());}
 function parseD(s){var p=s.split('-').map(Number);return new Date(p[0],p[1]-1,p[2]);}
 function daysLeft(s){return Math.round((parseD(s)-startOfToday())/864e5);}
@@ -278,7 +387,7 @@ function renderPull(){
 function cardHtml(b){
   var d=daysLeft(b.expiry);
   return '<article class="card"><div class="card-top"><div class="card-main"><h3>'+esc(b.name)+'</h3>'+
-    '<p class="meta">'+esc(b.dateType||'Sell by')+' '+fmtDate(b.expiry)+' · '+plural(b.cases,'case')+'</p></div>'+
+    '<p class="meta">'+esc(b.dateType||'Sell by')+' '+fmtDate(b.expiry)+' · '+qtyText(b)+'</p></div>'+
     '<span class="badge '+tone(d)+'">'+badgeText(d)+'</span></div>'+
     '<div class="actions"><button type="button" class="btn" data-act="pulled" data-id="'+b.id+'">Pulled</button>'+
     '<button type="button" class="btn" data-act="sold" data-id="'+b.id+'">Sold out</button></div></article>';
@@ -313,27 +422,210 @@ function removeSamples(){
 }
 
 /* ---------- Receive ---------- */
+var recvMode='vendor',curVendor='',openItem='',addingVendor=false,addingItem=false,delArm='';
+function vendorIds(){return Object.keys(state.vendors).sort(function(a,b){return state.vendors[a].name.localeCompare(state.vendors[b].name);});}
 function renderReceive(){
   titleEl.textContent='Receive delivery';
-  subEl.textContent='Log each batch as you shelve it.';
+  subEl.textContent=recvMode==='vendor'?'Pick the vendor, then tap each item that arrived.':'Log one item at a time.';
+  view.innerHTML='<div class="seg" style="margin-top:14px">'+
+    '<label><input type="radio" name="rm" value="vendor"'+(recvMode==='vendor'?' checked':'')+'><span>From invoice</span></label>'+
+    '<label><input type="radio" name="rm" value="single"'+(recvMode==='single'?' checked':'')+'><span>Single item</span></label></div><div id="rbox"></div>';
+  view.querySelectorAll('input[name="rm"]').forEach(function(r){r.onchange=function(){recvMode=r.value;renderReceive();};});
+  var box=document.getElementById('rbox');
+  if(recvMode==='vendor')renderVendor(box);else renderSingle(box);
+}
+function renderVendor(box){
+  var ids=vendorIds();
+  if(!curVendor||!state.vendors[curVendor])curVendor=ids[0]||'';
+  var v=state.vendors[curVendor];
+  function again(){renderVendor(box);}
+  function el(id){return document.getElementById(id);}
+  function updateSum(){
+    var s=el('e-sum');if(!s||!el('e-cs')||!el('e-pc'))return;
+    var c=parseInt(el('e-cs').value,10)||0,p=parseInt(el('e-pc').value,10)||0;
+    s.textContent=(c&&p)?c+' × '+p+' = '+plural(c*p,'piece'):'Set pieces per case below to see the piece count.';
+  }
+  function reveal(k){box.querySelectorAll('.irow').forEach(function(b){if(b.getAttribute('data-k')===k){b.scrollIntoView({block:'start'});}});}
+  function itemHtml(k){
+    var it=v.items[k],open=(openItem===k),today=toISO(new Date());
+    var got=it.last&&it.last.day===today;
+    var s='<div class="card" data-q="'+esc((it.name+' '+k).toLowerCase())+'"><button type="button" class="irow" data-act="open" data-k="'+esc(k)+'" aria-expanded="'+open+'">'+
+      '<span class="card-main"><h3>'+esc(it.name)+'</h3><p class="meta">Item '+esc(k)+' · '+(it.perCase?it.perCase+' per case':'pieces per case not set')+' · '+(it.barcode?'UPC linked':'no UPC yet')+'</p></span>'+
+      (got?'<span class="badge ok">+'+plural(it.last.cases,'case')+'</span>':'')+'</button>';
+    if(open){
+      var dt=state.settings.dateType||'Sell by';
+      s+='<div class="editor">'+
+        '<div class="field"><span class="lbl">Date on package</span><div class="seg">'+['Sell by','Use by','Best by'].map(function(t){return '<label><input type="radio" name="vdt" value="'+t+'"'+(t===dt?' checked':'')+'><span>'+t+'</span></label>';}).join('')+'</div><input id="e-ex" type="date" aria-label="Expiration date"></div>'+
+        '<div class="field"><label class="lbl" for="e-cs">Cases</label><div class="stepper"><button type="button" class="btn" data-act="minus" aria-label="Fewer cases">&minus;</button><input id="e-cs" type="number" inputmode="numeric" min="1" value="1"><button type="button" class="btn" data-act="plus" aria-label="More cases">+</button></div><p class="meta" id="e-sum"></p></div>'+
+        '<button type="button" class="btn primary big" data-act="addb">Add batch</button>'+
+        '<details class="det"'+(it.barcode?'':' open')+'><summary>Item ID, pieces per case and UPC</summary>'+
+        '<div class="field"><label class="lbl" for="e-id">Item ID on the invoice</label><input id="e-id" value="'+esc(k)+'" autocapitalize="characters" autocomplete="off"></div>'+
+        '<div class="field"><label class="lbl" for="e-nm">Name</label><input id="e-nm" value="'+esc(it.name)+'" autocomplete="off"></div>'+
+        '<div class="field"><label class="lbl" for="e-pc">Pieces per case</label><input id="e-pc" type="number" inputmode="numeric" min="1" value="'+(it.perCase||'')+'"></div>'+
+        '<div class="field"><label class="lbl" for="e-bc">UPC (barcode on one unit)</label><div class="row"><input id="e-bc" inputmode="numeric" placeholder="Scan or type" value="'+esc(it.barcode||'')+'" autocomplete="off"><button type="button" class="btn ghost" data-act="sbc">Scan</button></div></div>'+
+        '<div class="actions"><button type="button" class="btn" data-act="sdet">Save details</button><button type="button" class="btn" data-act="del">'+(delArm===k?'Tap again to delete':'Delete item')+'</button></div>'+
+        '</details></div>';
+    }
+    return s+'</div>';
+  }
+  var h='<div class="field" style="margin-top:14px"><label class="lbl" for="vsel">Vendor</label><div class="row">'+
+    (ids.length?'<select id="vsel">'+ids.map(function(i){return '<option value="'+esc(i)+'"'+(i===curVendor?' selected':'')+'>'+esc(state.vendors[i].name)+'</option>';}).join('')+'</select>':'<span class="meta" style="align-self:center;flex:1">No vendors yet</span>')+
+    '<button type="button" class="btn ghost" data-act="vadd">New</button></div></div>';
+  if(addingVendor){
+    h+='<div class="card"><label class="lbl" for="vname">Vendor name</label><input id="vname" placeholder="Derle Farms" autocomplete="off"><div class="actions"><button type="button" class="btn primary" data-act="vsave">Save vendor</button><button type="button" class="btn" data-act="vcancel">Cancel</button></div></div>';
+  }
+  if(!v){
+    h+='<div class="empty"><h2>Add your first vendor</h2><p>Add the company that delivers, then the items it brings.</p></div>';
+  }else{
+    var keys=Object.keys(v.items).sort(function(a,b){return v.items[a].name.localeCompare(v.items[b].name);});
+    h+='<div class="field"><label class="lbl" for="vq">Find item</label><div class="row"><input id="vq" type="search" placeholder="Name or item ID" autocomplete="off"><button type="button" class="btn ghost" data-act="vfind">Scan</button></div></div>';
+    h+=keys.map(itemHtml).join('');
+    if(addingItem){
+      h+='<div class="card"><h3>New item for '+esc(v.name)+'</h3>'+
+        '<div class="field" style="margin-top:12px"><label class="lbl" for="a-id">Item ID on the invoice</label><input id="a-id" autocapitalize="characters" autocomplete="off"></div>'+
+        '<div class="field"><label class="lbl" for="a-nm">Name</label><input id="a-nm" autocomplete="off"></div>'+
+        '<div class="field"><label class="lbl" for="a-pc">Pieces per case</label><input id="a-pc" type="number" inputmode="numeric" min="1"></div>'+
+        '<div class="field"><label class="lbl" for="a-bc">UPC (optional)</label><div class="row"><input id="a-bc" inputmode="numeric" placeholder="Scan or type" autocomplete="off"><button type="button" class="btn ghost" data-act="iscan">Scan</button></div></div>'+
+        '<div class="actions"><button type="button" class="btn primary" data-act="isave">Save item</button><button type="button" class="btn" data-act="icancel">Cancel</button></div></div>';
+    }else{
+      h+='<button type="button" class="btn big" data-act="iadd">Add an item to '+esc(v.name)+'</button>';
+    }
+    h+='<div class="sec"><button type="button" class="btn small" data-act="vdel">'+(delArm==='vendor'?'Tap again to delete '+esc(v.name):'Delete vendor')+'</button></div>';
+  }
+  box.innerHTML=h;
+  updateSum();
+
+  function saveDetails(k){
+    var it=v.items[k];if(!it)return null;
+    var nm=el('e-nm').value.trim(),nk=iKey(el('e-id').value)||k;
+    if(!nm){toast('Give the item a name.');return null;}
+    if(nk!==k&&v.items[nk]){toast('Another item already uses that ID.');return null;}
+    it.name=nm;
+    it.perCase=parseInt(el('e-pc').value,10)||0;
+    it.barcode=el('e-bc').value.replace(/\D/g,'');
+    if(norm(it.barcode)){state.products[norm(it.barcode)]=nm;}
+    if(nk!==k){delete v.items[k];it.id=nk;v.items[nk]=it;if(openItem===k)openItem=nk;}
+    save();
+    return nk;
+  }
+  function addBatch(k){
+    var nk=saveDetails(k);if(!nk)return;
+    k=nk;var it=v.items[k];
+    var expiry=el('e-ex').value,cases=parseInt(el('e-cs').value,10)||0;
+    if(!expiry||cases<1){toast('Add the date on the package and at least 1 case.');return;}
+    var type=(box.querySelector('input[name="vdt"]:checked')||{}).value||'Sell by';
+    var b={id:uid(),barcode:it.barcode||'',name:it.name,expiry:expiry,cases:cases,perCase:it.perCase||undefined,dateType:type,status:'active',createdAt:Date.now(),vendorId:curVendor,itemId:k};
+    var bk=batchKey(b);
+    var existing=state.batches.filter(function(x){return x.status==='active'&&x.expiry===expiry&&batchKey(x)===bk;})[0];
+    var msg;
+    if(existing){existing.cases+=cases;if(b.perCase)existing.perCase=b.perCase;msg='Added to existing batch: '+qtyText(existing)+' now';}
+    else{state.batches.push(b);msg='Added: '+it.name+', '+qtyText(b);}
+    var today=toISO(new Date());
+    it.last={day:today,cases:((it.last&&it.last.day===today)?it.last.cases:0)+cases};
+    save();openItem='';again();toast(msg);
+  }
+  box.onclick=function(e){
+    var t=e.target.closest('[data-act]');if(!t||!box.contains(t))return;
+    var a=t.getAttribute('data-act'),k=t.getAttribute('data-k');
+    if(a!=='del'&&a!=='vdel')delArm='';
+    if(a==='vadd'){addingVendor=true;again();var vn=el('vname');if(vn)vn.focus();}
+    else if(a==='vcancel'){addingVendor=false;again();}
+    else if(a==='vsave'){
+      var name=el('vname').value.trim();
+      if(!name){toast('Enter a vendor name.');return;}
+      var id=slug(name);
+      if(!state.vendors[id])state.vendors[id]={name:name,items:{}};
+      curVendor=id;addingVendor=false;openItem='';save();again();
+    }
+    else if(a==='vdel'){
+      if(delArm==='vendor'){delete state.vendors[curVendor];curVendor='';delArm='';openItem='';save();again();toast('Vendor deleted');}
+      else{delArm='vendor';again();}
+    }
+    else if(a==='open'){openItem=(openItem===k?'':k);addingItem=false;again();if(openItem)reveal(k);}
+    else if(a==='minus'||a==='plus'){
+      var c=el('e-cs'),n=parseInt(c.value,10)||0;
+      c.value=a==='minus'?Math.max(1,n-1):n+1;updateSum();
+    }
+    else if(a==='addb'){addBatch(openItem);}
+    else if(a==='sdet'){var nk=saveDetails(openItem);if(nk){again();toast('Item saved');}}
+    else if(a==='del'){
+      if(delArm===openItem){delete v.items[openItem];openItem='';delArm='';save();again();toast('Item deleted');}
+      else{delArm=openItem;again();}
+    }
+    else if(a==='sbc'){startScan(function(code){el('e-bc').value=code;toast('UPC filled in. Tap Add batch or Save details.');});}
+    else if(a==='iadd'){addingItem=true;openItem='';again();var ai=el('a-id');if(ai)ai.focus();}
+    else if(a==='icancel'){addingItem=false;again();}
+    else if(a==='iscan'){startScan(function(code){el('a-bc').value=code;});}
+    else if(a==='isave'){
+      var id2=iKey(el('a-id').value),nm2=el('a-nm').value.trim();
+      if(!id2||!nm2){toast('Add the item ID and a name.');return;}
+      if(v.items[id2]){toast('Another item already uses that ID.');return;}
+      var bc2=el('a-bc').value.replace(/\D/g,'');
+      v.items[id2]={id:id2,name:nm2,perCase:parseInt(el('a-pc').value,10)||0,barcode:bc2};
+      if(norm(bc2)){state.products[norm(bc2)]=nm2;}
+      addingItem=false;openItem=id2;save();again();reveal(id2);
+    }
+    else if(a==='vfind'){
+      startScan(function(code){
+        var cv=state.vendors[curVendor],n=norm(code),found='';
+        if(cv){Object.keys(cv.items).forEach(function(x){if(n&&norm(cv.items[x].barcode)===n)found=x;});}
+        if(found){openItem=found;addingItem=false;again();reveal(found);}
+        else{toast('No item here has that UPC yet. Open an item and link it.');}
+      });
+    }
+  };
+  box.oninput=function(e){
+    var id=e.target.id;
+    if(id==='vq'){
+      var q=e.target.value.trim().toLowerCase();
+      box.querySelectorAll('[data-q]').forEach(function(c){c.hidden=!!q&&c.getAttribute('data-q').indexOf(q)<0;});
+    }else if(id==='e-cs'||id==='e-pc'){updateSum();}
+  };
+  box.onchange=function(e){
+    if(e.target.id==='vsel'){curVendor=e.target.value;openItem='';addingItem=false;delArm='';again();}
+    else if(e.target.name==='vdt'){state.settings.dateType=e.target.value;save();}
+  };
+}
+function renderSingle(box){
   var rec=state.recent.slice(0,8);
   var names={};Object.keys(state.products).forEach(function(k){names[state.products[k]]=1;});
   var dt=state.settings.dateType||'Sell by';
-  view.innerHTML='<form id="f" class="form" autocomplete="off">'+
+  box.innerHTML='<form id="f" class="form" autocomplete="off">'+
     (rec.length?'<div class="field"><span class="lbl">Recent products</span><div class="chips">'+rec.map(function(r,i){return '<button type="button" class="chip" data-r="'+i+'">'+esc(r.name)+'</button>';}).join('')+'</div></div>':'')+
-    '<div class="field"><label class="lbl" for="bc">Barcode</label><div class="row"><input id="bc" inputmode="numeric" placeholder="Scan or type"><button type="button" class="btn ghost" id="scan">Scan</button></div></div>'+
+    '<div class="field"><label class="lbl" for="bc">Barcode</label><div class="row"><input id="bc" inputmode="numeric" placeholder="Scan or type"><button type="button" class="btn ghost" id="scan">Scan</button></div><p class="meta" id="lk" aria-live="polite"></p></div>'+
     '<div class="field"><label class="lbl" for="nm">Product</label><input id="nm" list="plist" placeholder="Whole milk, 1 gal" required><datalist id="plist">'+Object.keys(names).map(function(n){return '<option value="'+esc(n)+'">';}).join('')+'</datalist></div>'+
     '<div class="field"><span class="lbl">Date on package</span><div class="seg" role="radiogroup" aria-label="Date type">'+
       ['Sell by','Use by','Best by'].map(function(t){return '<label><input type="radio" name="dt" value="'+t+'"'+(t===dt?' checked':'')+'><span>'+t+'</span></label>';}).join('')+
     '</div><input id="ex" type="date" required aria-label="Expiration date"></div>'+
     '<div class="field"><label class="lbl" for="cs">Cases</label><div class="stepper"><button type="button" class="btn" id="minus" aria-label="Fewer cases">&minus;</button><input id="cs" type="number" inputmode="numeric" min="1" value="1"><button type="button" class="btn" id="plus" aria-label="More cases">+</button></div></div>'+
+    '<div class="field"><label class="lbl" for="pc">Pieces per case (optional)</label><input id="pc" type="number" inputmode="numeric" min="1" placeholder="12"></div>'+
     '<button class="btn primary big" type="submit">Add batch</button></form>';
   var bc=document.getElementById('bc'),nm=document.getElementById('nm'),ex=document.getElementById('ex'),cs=document.getElementById('cs');
-  function fillFromBarcode(){var p=state.products[bc.value.trim()];if(p){nm.value=p;}}
-  bc.onchange=fillFromBarcode;
+  var lk=document.getElementById('lk'),lookupSeq=0;
+  function fillFromBarcode(){
+    var raw=bc.value.replace(/\D/g,''),code=norm(raw);
+    lk.textContent='';
+    if(!code||raw.length<8)return Promise.resolve();
+    var p=state.products[code];
+    if(p){nm.value=p;lk.textContent='Found in your product list.';return Promise.resolve();}
+    var seq=++lookupSeq;
+    lk.textContent='Looking up online…';
+    return lookupOFF(raw).then(function(r){
+      if(seq!==lookupSeq)return;
+      if(r.status==='found'){
+        if(!nm.value.trim()){nm.value=r.name;}
+        lk.textContent='Found online: '+r.name+'. Check it before adding.';
+      }else if(r.status==='missing'){
+        lk.textContent='Not found online. Type the name once and the app remembers it.';
+      }else{
+        lk.textContent='No connection. Type the name once and the app remembers it.';
+      }
+    });
+  }
+  bc.onchange=function(){fillFromBarcode();};
   document.getElementById('minus').onclick=function(){cs.value=Math.max(1,(parseInt(cs.value,10)||1)-1);};
   document.getElementById('plus').onclick=function(){cs.value=(parseInt(cs.value,10)||0)+1;};
-  document.getElementById('scan').onclick=function(){startScan(function(code){bc.value=code;fillFromBarcode();if(!nm.value){nm.focus();}else{ex.focus();}});};
+  document.getElementById('scan').onclick=function(){startScan(function(code){bc.value=code;fillFromBarcode().then(function(){if(!nm.value){nm.focus();}else{ex.focus();}});});};
   view.querySelectorAll('[data-r]').forEach(function(btn){
     btn.onclick=function(){var r=state.recent[Number(btn.getAttribute('data-r'))];bc.value=r.barcode||'';nm.value=r.name;ex.focus();};
   });
@@ -343,12 +635,13 @@ function renderReceive(){
     var name=nm.value.trim(),code=bc.value.trim(),expiry=ex.value,cases=parseInt(cs.value,10)||0;
     if(!name||!expiry||cases<1){toast('Add a product, a date, and at least 1 case.');return;}
     var type=(view.querySelector('input[name="dt"]:checked')||{}).value||'Sell by';
-    var key=(code||name).toLowerCase();
-    var existing=state.batches.filter(function(b){return b.status==='active'&&b.expiry===expiry&&((b.barcode||b.name).toLowerCase()===key);})[0];
+    var pc=parseInt(document.getElementById('pc').value,10)||0;
+    var key=batchKey({barcode:code,name:name});
+    var existing=state.batches.filter(function(b){return b.status==='active'&&b.expiry===expiry&&batchKey(b)===key;})[0];
     var msg;
-    if(existing){existing.cases+=cases;msg='Added to existing batch: '+plural(existing.cases,'case')+' now';}
-    else{state.batches.push({id:uid(),barcode:code,name:name,expiry:expiry,cases:cases,dateType:type,status:'active',createdAt:Date.now()});msg='Added: '+name;}
-    if(code){state.products[code]=name;}
+    if(existing){existing.cases+=cases;if(pc)existing.perCase=pc;msg='Added to existing batch: '+qtyText(existing)+' now';}
+    else{state.batches.push({id:uid(),barcode:code,name:name,expiry:expiry,cases:cases,perCase:pc||undefined,dateType:type,status:'active',createdAt:Date.now()});msg='Added: '+name;}
+    if(norm(code)){state.products[norm(code)]=name;}
     state.recent=[{barcode:code,name:name}].concat(state.recent.filter(function(r){return r.name!==name;})).slice(0,8);
     save(); renderReceive(); toast(msg);
   };
@@ -396,15 +689,30 @@ function renderHistory(){
   if(!done.length){html+='<div class="empty"><h2>No history yet</h2><p>Batches you mark as pulled or sold out appear here.</p></div>';}
   else{
     html+='<div style="margin-top:12px">'+done.slice(0,60).map(function(b){
-      return '<div class="hrow"><div class="card-main"><h3>'+esc(b.name)+'</h3><p class="meta"><span class="tag '+b.status+'">'+(b.status==='pulled'?'Pulled':'Sold out')+'</span>'+esc(b.dateType||'Sell by')+' '+fmtDate(b.expiry)+' · '+plural(b.cases,'case')+'</p></div><button type="button" class="btn small" data-restore="'+b.id+'">Restore</button></div>';
+      return '<div class="hrow"><div class="card-main"><h3>'+esc(b.name)+'</h3><p class="meta"><span class="tag '+b.status+'">'+(b.status==='pulled'?'Pulled':'Sold out')+'</span>'+esc(b.dateType||'Sell by')+' '+fmtDate(b.expiry)+' · '+qtyText(b)+'</p></div><button type="button" class="btn small" data-restore="'+b.id+'">Restore</button></div>';
     }).join('')+'</div>';
   }
+  html+='<section class="sec"><h2>Product list</h2><p>'+plural(Object.keys(state.products).length,'product')+' remembered. To add many at once, import a spreadsheet saved as CSV with a barcode column and a name column. Products you already have are kept as they are.</p><div class="btns"><button type="button" class="btn" id="imp-prod">Import product list</button></div><input type="file" id="pfile" accept=".csv,.txt,text/csv,text/plain" hidden></section>';
   html+='<section class="sec"><h2>Backup</h2><p>Your data lives only in this browser. Export a file now and then, and import it to move to a new phone.</p><div class="btns"><button type="button" class="btn" id="export">Export backup</button><button type="button" class="btn" id="import">Import backup</button></div><input type="file" id="file" accept="application/json,.json" hidden></section>';
   view.innerHTML=html;
   view.querySelectorAll('[data-restore]').forEach(function(btn){
     btn.onclick=function(){var b=findBatch(btn.getAttribute('data-restore'));if(b){b.status='active';delete b.resolvedAt;save();renderHistory();toast('Restored to the pull list');}};
   });
   document.getElementById('export').onclick=exportData;
+  var pf=document.getElementById('pfile');
+  document.getElementById('imp-prod').onclick=function(){pf.click();};
+  pf.onchange=function(){
+    var f=pf.files&&pf.files[0]; if(!f)return;
+    var r=new FileReader();
+    r.onload=function(){
+      var res=parseProductCSV(r.result),added=0,kept=0;
+      res.pairs.forEach(function(p){if(state.products[p[0]]){kept++;}else{state.products[p[0]]=p[1];added++;}});
+      if(!res.pairs.length){toast('No barcodes found. Use a CSV with a barcode column and a name column.');return;}
+      save(); renderHistory();
+      toast('Added '+plural(added,'product')+(kept?', kept '+kept+' you already had':'')+(res.skipped?', skipped '+res.skipped:''));
+    };
+    r.readAsText(f);
+  };
   var file=document.getElementById('file');
   document.getElementById('import').onclick=function(){file.click();};
   file.onchange=function(){
@@ -418,6 +726,7 @@ function renderHistory(){
         var n=0;
         o.batches.forEach(function(b){if(b&&b.id&&b.name&&b.expiry&&!have[b.id]){state.batches.push(b);n++;}});
         Object.assign(state.products,o.products||{});
+        mergeVendors(o.vendors);
         save(); renderHistory(); toast('Imported '+plural(n,'batch'));
       }catch(e){toast('That file is not an expiry log backup.');}
     };
@@ -448,6 +757,7 @@ function route(scroll){
 window.addEventListener('hashchange',function(){stopScan();route(true);});
 document.addEventListener('visibilitychange',function(){if(!document.hidden&&(location.hash||'#pull')==='#pull')renderPull();});
 load();
+seedVendors();
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(e){}
 route(false);
 })();
