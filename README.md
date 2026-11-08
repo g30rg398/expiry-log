@@ -12,7 +12,10 @@ list as the dates come up.
 - **Due** — Open items grouped: Expired / Today / Tomorrow / Next 7 days / Later.
   Mark each one **Pulled**, **Marked down**, or **Sold out** (all have Undo). Tap the photo to enlarge it.
 - **History** — 30-day totals, resolved items (with Reopen), and past sweeps. These are your numbers for the manager.
-- **Settings** — name, store, department, sweep window (default 10 days), backup export/import.
+- **Settings** — name, store, **My department** (drop-down of existing departments + "New department…"),
+  sweep window (default 10 days), backup export/import. On first launch you create a department before logging.
+- **Due → All departments** — once there are 2+ departments, a switch at the top of Due shows every
+  department in its own collapsible block (yours first), each with its own urgency groups.
 
 ## Deploy (GitHub Pages, same as before)
 Upload the contents of this folder to the repo root (or a `/v2` folder), then open it in Chrome on Android
@@ -50,6 +53,7 @@ js/
 ### Mapping to PocketBase later
 | Local store | PocketBase collection | Notes |
 |---|---|---|
+| departments | `departments` | unique (storeId, key); entries reference `key` |
 | products | `products` | unique (storeId, barcode) |
 | entries | `entries` | relation → products, photos; rule: same store & department |
 | sweeps | `sweeps` | |

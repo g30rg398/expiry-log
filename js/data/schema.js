@@ -49,6 +49,18 @@ function base(ctx) {
   };
 }
 
+// Stable key for a department ("Frozen Foods" -> "frozen-foods"). Entries store
+// the key, so renaming a department later only changes its display name.
+export function slugify(name) {
+  const s = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return s || `dept-${uuid().slice(0, 8)}`; // e.g. non-Latin names
+}
+
+export function newDepartment(ctx, { name, key }) {
+  const k = key || slugify(name);
+  return { ...base({ ...ctx, department: k }), key: k, name: name.trim() };
+}
+
 // A product = what the barcode identifies (no date). Reused across entries.
 export function newProduct(ctx, { barcode = '', name, brand = '' }) {
   return { ...base(ctx), barcode: barcode.trim(), name: name.trim(), brand: brand.trim() };

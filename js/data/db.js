@@ -1,9 +1,10 @@
 // Thin promise wrapper around IndexedDB. Only repo.js should import this.
 
 const DB_NAME = 'expiry-tracker-v2';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const S = Object.freeze({
+  departments: 'departments',
   products: 'products',
   entries: 'entries',
   sweeps: 'sweeps',
@@ -29,6 +30,9 @@ export function openDB() {
         db.createObjectStore(S.sweeps, { keyPath: 'id' });
         db.createObjectStore(S.photos, { keyPath: 'id' });
         db.createObjectStore(S.meta, { keyPath: 'key' });
+      }
+      if (e.oldVersion < 2) {
+        db.createObjectStore(S.departments, { keyPath: 'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);

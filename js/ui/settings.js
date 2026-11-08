@@ -3,12 +3,13 @@
 import { h, toast, confirmDialog } from './dom.js';
 import { settingsRepo, backup } from '../data/repo.js';
 import { todayISO } from '../lib/dates.js';
+import { picker } from './departments.js';
 
 export async function render(root, app) {
   const s = settingsRepo.get();
   const userName = h('input', { value: s.userName, placeholder: 'Your name' });
   const storeName = h('input', { value: s.storeName });
-  const department = h('input', { value: s.department });
+  const deptPicker = await picker(app);
   const cutoff = h('input', { type: 'number', min: '1', max: '60', value: String(s.cutoffDays) });
 
   const profile = h('form', {
@@ -18,7 +19,6 @@ export async function render(root, app) {
       await settingsRepo.update({
         userName: userName.value.trim(),
         storeName: storeName.value.trim() || 'My store',
-        department: department.value.trim() || 'dairy',
         cutoffDays: Math.max(1, Math.min(60, Number(cutoff.value) || 10)),
       });
       toast('Settings saved');
@@ -28,7 +28,7 @@ export async function render(root, app) {
   h('h2', {}, 'Profile'),
   field('Your name', userName),
   field('Store', storeName),
-  field('Department', department, h('small', { class: 'muted hint' }, 'Each department keeps its own list.')),
+  field('My department', deptPicker, h('small', { class: 'muted hint' }, 'New items are logged here. Changes apply right away.')),
   field('Sweep window (days)', cutoff, h('small', { class: 'muted hint' }, 'Log items expiring within this many days.')),
   h('button', { type: 'submit', class: 'btn wide' }, 'Save'));
 
@@ -73,7 +73,7 @@ export async function render(root, app) {
     }, 'Delete all data'));
 
   root.replaceChildren(profile, data,
-    h('p', { class: 'muted center small' }, 'Expiry Tracker v2 · data stays on your device'));
+    h('p', { class: 'muted center small' }, 'Expiry Tracker v2.1.0 · data stays on your device'));
 }
 
 async function doExport() {

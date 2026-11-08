@@ -9,15 +9,18 @@ import * as db from './db.js';
 import { S } from './db.js';
 import {
   SCHEMA_VERSION, STATUS, uuid, nowISO, touch,
-  newProduct, newEntry, newSweep, newPhoto,
+  newProduct, newEntry, newSweep, newPhoto, newDepartment,
 } from './schema.js';
 
 const DEFAULT_SETTINGS = {
   userName: '',
   storeName: 'My store',
-  department: 'dairy',
-  cutoffDays: 10, // log items expiring within this many days of the sweep
+  department: '',  // key of "my" department; '' until one is created
+  dueView: 'mine', // 'mine' | 'all' — Due tab filter
+  cutoffDays: 10,  // log items expiring within this many days of the sweep
 };
+
+const titleCase = (k) => k.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 let settings = null; // cached
 let ctx = null;      // { userId, storeId, department }
@@ -40,8 +43,15 @@ export async function init() {
   let storeId = await metaGet('storeId');
   if (!storeId) { storeId = uuid(); await metaSet('storeId', storeId); }
   await metaSet('schemaVersion', SCHEMA_VERSION);
-  settings = { ...DEFAULT_SETTINGS, ...((await metaGet('settings')) || {}) };
+  const saved = await metaGet('settings');
+  settings = { ...DEFAULT_SETTINGS, ...(saved || {}) };
+  // v2.0 never saved settings until you pressed Save, and silently used 'dairy'.
+  if (!saved?.department && !settings.department) {
+    const used = (await db.getAll(S.entries)).find((e) => e.department);
+    if (used) settings.department = used.department;
+  }
   ctx = { userId, storeId, department: settings.department };
+  await departments.ensureFromRecords();
   if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 }
 
@@ -51,10 +61,43 @@ export const settingsRepo = {
   ctx: () => ({ ...ctx }),
   async update(patch) {
     settings = { ...settings, ...patch };
-    if (patch.department) settings.department = patch.department.trim().toLowerCase();
     ctx = { ...ctx, department: settings.department };
     await metaSet('settings', settings);
     return { ...settings };
+  },
+};
+
+// ---------- departments ----------
+export const departments = {
+  async list() {
+    return (await db.getAll(S.departments))
+      .filter((d) => live(d) && d.storeId === ctx.storeId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+  async byKey(key) {
+    return (await departments.list()).find((d) => d.key === key) || null;
+  },
+  // Creates (or finds, if the name already exists) and returns the department.
+  async create(name) {
+    if (!name.trim()) throw new Error('Department name is required');
+    const d = newDepartment(ctx, { name });
+    const existing = (await departments.list())
+      .find((x) => x.key === d.key || x.name.toLowerCase() === d.name.toLowerCase());
+    if (existing) return existing;
+    await db.put(S.departments, d);
+    return d;
+  },
+  async select(key) {
+    return settingsRepo.update({ department: key });
+  },
+  // Make sure every department key used by records (or settings) has a record.
+  async ensureFromRecords() {
+    const known = new Set((await departments.list()).map((d) => d.key));
+    const keys = new Set((await db.getAll(S.entries)).filter(live).map((e) => e.department).filter(Boolean));
+    if (settings.department) keys.add(settings.department);
+    for (const key of keys) {
+      if (!known.has(key)) await db.put(S.departments, newDepartment(ctx, { key, name: titleCase(key) }));
+    }
   },
 };
 
@@ -115,6 +158,7 @@ export const entries = {
     return db.get(S.entries, id);
   },
   async add(data) {
+    if (!ctx.department) throw new Error('Create a department first');
     const product = await products.upsert({ barcode: data.barcode, name: data.productName });
     const e = newEntry(ctx, { ...data, productId: product.id, productName: product.name });
     await db.put(S.entries, e);
@@ -217,6 +261,7 @@ export const backup = {
       schemaVersion: SCHEMA_VERSION,
       exportedAt: nowISO(),
       meta: { userId: ctx.userId, storeId: ctx.storeId, settings },
+      departments: await db.getAll(S.departments),
       products: await db.getAll(S.products),
       entries: await db.getAll(S.entries),
       sweeps: await db.getAll(S.sweeps),
@@ -227,14 +272,20 @@ export const backup = {
     if (data?.format !== 'expiry-tracker-backup') throw new Error('Not a backup file from this app');
     if (data.schemaVersion > SCHEMA_VERSION) throw new Error('Backup is from a newer app version');
     const counts = { added: 0, updated: 0, skipped: 0 };
+    // Single-store for now: every phone makes its own random storeId, so
+    // imported records are re-labelled with this phone's storeId to stay visible.
+    // (With a backend, the store comes from the server and this goes away.)
     const merge = async (name, rows, prepare = (r) => r) => {
       for (const r of rows || []) {
         const cur = await db.get(name, r.id);
         if (cur && cur.updatedAt >= r.updatedAt) { counts.skipped++; continue; }
-        await db.put(name, await prepare(r));
+        await db.put(name, { ...(await prepare(r)), storeId: ctx.storeId });
         counts[cur ? 'updated' : 'added']++;
       }
     };
+    // Departments match by key, not id: "Dairy" made on two phones is one department.
+    const localKeys = new Set((await departments.list()).map((d) => d.key));
+    await merge(S.departments, (data.departments || []).filter((d) => !d.deletedAt && !localKeys.has(d.key)));
     await merge(S.products, data.products);
     await merge(S.sweeps, data.sweeps);
     await merge(S.photos, data.photos, async (p) => ({
@@ -243,12 +294,7 @@ export const backup = {
       thumb: p.thumb ? await dataURLToBlob(p.thumb) : null,
     }));
     await merge(S.entries, data.entries);
-    // Adopt the backup's store id on a fresh device so its records are in scope.
-    const hasOwn = (await db.getAll(S.entries)).some((e) => e.storeId === ctx.storeId);
-    if (!hasOwn && data.meta?.storeId) {
-      await metaSet('storeId', data.meta.storeId);
-      ctx.storeId = data.meta.storeId;
-    }
+    await departments.ensureFromRecords(); // backups from v2.0 have no department records
     return counts;
   },
   async wipe() {

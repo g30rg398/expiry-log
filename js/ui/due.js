@@ -1,7 +1,8 @@
 // "Due" screen: open items grouped by how soon they expire, with actions.
 
 import { h, toast, modal, blobURL, confirmDialog } from './dom.js';
-import { entries, photos } from '../data/repo.js';
+import { entries, photos, departments, settingsRepo } from '../data/repo.js';
+import { setupCard } from './departments.js';
 import { STATUS, STATUS_LABEL } from '../data/schema.js';
 import { daysUntil, relLabel, fmtDate } from '../lib/dates.js';
 
@@ -13,30 +14,73 @@ const GROUPS = [
   { key: 'later', title: 'Later', test: (n) => n > 7, cls: '' },
 ];
 
+// "All departments" is a view filter here, not a setting: logging always needs one department.
+const showAll = () => settingsRepo.get().dueView === 'all';
+
 export async function urgentCount() {
-  return (await entries.listOpen()).filter((e) => daysUntil(e.expiresOn) <= 1).length;
+  if (!settingsRepo.get().department) return 0;
+  return (await entries.listOpen({ allDepartments: showAll() })).filter((e) => daysUntil(e.expiresOn) <= 1).length;
 }
 
 export async function render(root, app) {
-  const open = await entries.listOpen();
+  const s = settingsRepo.get();
+  if (!s.department) { root.replaceChildren(setupCard(app)); return; }
+
+  const depts = await departments.list();
+  const mine = depts.find((d) => d.key === s.department);
+  const all = showAll() && depts.length > 1;
+  const open = await entries.listOpen({ allDepartments: all });
+
+  const out = [];
+  if (depts.length > 1) out.push(viewSwitch(mine?.name || s.department, all, app));
+
   if (!open.length) {
-    root.replaceChildren(h('section', { class: 'empty' },
+    out.push(h('section', { class: 'empty' },
       h('p', { class: 'big' }, '✓'),
       h('p', {}, 'Nothing being watched.'),
       h('p', { class: 'muted' }, 'Items you log during a sweep show up here, soonest first.')));
+    root.replaceChildren(...out);
     return;
   }
 
+  if (!all) {
+    out.push(...(await urgencyGroups(open, app, 'h2')));
+  } else {
+    // One block per department (mine first), each with its own urgency groups.
+    const order = [mine, ...depts.filter((d) => d !== mine)].filter(Boolean);
+    for (const d of order) {
+      const rows = open.filter((e) => e.department === d.key);
+      const urgent = rows.filter((e) => daysUntil(e.expiresOn) <= 1).length;
+      const block = h('details', { class: 'dept-block', open: rows.length > 0 },
+        h('summary', {},
+          h('span', { class: 'dept-name' }, d.name, d === mine ? h('span', { class: 'pill' }, 'mine') : null),
+          h('span', { class: 'muted small' }, rows.length ? `${rows.length} open` : 'nothing open'),
+          urgent ? h('span', { class: 'badge-inline' }, `${urgent} urgent`) : null));
+      if (rows.length) block.append(...(await urgencyGroups(rows, app, 'h3')));
+      out.push(block);
+    }
+  }
+  root.replaceChildren(...out);
+}
+
+function viewSwitch(myName, all, app) {
+  const set = (v) => async () => { await settingsRepo.update({ dueView: v }); app.refresh(); };
+  return h('div', { class: 'segmented' },
+    h('button', { type: 'button', class: all ? '' : 'on', onclick: set('mine') }, myName),
+    h('button', { type: 'button', class: all ? 'on' : '', onclick: set('all') }, 'All departments'));
+}
+
+async function urgencyGroups(rows, app, tag) {
   const sections = [];
   for (const g of GROUPS) {
-    const rows = open.filter((e) => g.test(daysUntil(e.expiresOn)));
-    if (!rows.length) continue;
-    const cards = await Promise.all(rows.map((e) => card(e, g, app)));
+    const sub = rows.filter((e) => g.test(daysUntil(e.expiresOn)));
+    if (!sub.length) continue;
+    const cards = await Promise.all(sub.map((e) => card(e, g, app)));
     sections.push(h('section', { class: `group ${g.cls}` },
-      h('h2', {}, g.title, h('span', { class: 'count' }, String(rows.length))),
+      h(tag, { class: 'group-title' }, g.title, h('span', { class: 'count' }, String(sub.length))),
       cards));
   }
-  root.replaceChildren(...sections);
+  return sections;
 }
 
 async function card(e, g, app) {

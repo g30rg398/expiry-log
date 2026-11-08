@@ -1,7 +1,8 @@
 // "Check" screen: run a sweep and log items that expire soon.
 
 import { h, toast, blobURL, confirmDialog } from './dom.js';
-import { entries, products, photos, sweeps, settingsRepo } from '../data/repo.js';
+import { entries, products, photos, sweeps, settingsRepo, departments } from '../data/repo.js';
+import { setupCard } from './departments.js';
 import { todayISO, addDays, daysUntil, fmtDate } from '../lib/dates.js';
 import { processPhoto } from '../lib/images.js';
 import * as scanner from '../lib/scanner.js';
@@ -12,6 +13,9 @@ const carry = { photoId: null, thumbURL: null, photoLocation: '', location: '', 
 
 export async function render(root, app) {
   const settings = settingsRepo.get();
+  if (!settings.department) { root.replaceChildren(setupCard(app)); return; }
+  const dept = await departments.byKey(settings.department);
+  settings.deptName = dept?.name || settings.department;
   const sweep = await sweeps.current();
   const [knownProducts, locations] = await Promise.all([products.all(), entries.recentLocations()]);
 
@@ -178,7 +182,7 @@ function form({ sweep, settings, knownProducts, locations, app }) {
 
   // --- submit ---
   const formEl = h('form', { class: 'card form', novalidate: false },
-    h('h2', {}, sweep ? 'Log a soon-to-expire item' : 'Log an item'),
+    h('h2', {}, sweep ? 'Log a soon-to-expire item' : 'Log an item', h('span', { class: 'pill' }, settings.deptName)),
     field('Barcode', h('div', { class: 'row' }, barcode, scanBtn)),
     field('Product', name, lookupNote),
     datalist,
