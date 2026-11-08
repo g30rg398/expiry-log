@@ -1,34 +1,47 @@
-// Offline cache for the Dairy Expiry Log. Serves the saved copy first, then refreshes it in the background,
-// so a new version of the app arrives the next time you open it with a connection.
-const CACHE = 'expiry-log-v3';
-const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+// Offline cache for the app shell. Bump VERSION whenever you change any file
+// so phones pick up the new version (it applies on the next app launch).
+
+const VERSION = 'v2.0.0';
+const CACHE = `expiry-shell-${VERSION}`;
+const SHELL = [
+  './',
+  './index.html',
+  './manifest.webmanifest',
+  './css/app.css',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './js/app.js',
+  './js/data/schema.js',
+  './js/data/db.js',
+  './js/data/repo.js',
+  './js/lib/dates.js',
+  './js/lib/images.js',
+  './js/lib/scanner.js',
+  './js/lib/lookup.js',
+  './js/ui/dom.js',
+  './js/ui/sweep.js',
+  './js/ui/due.js',
+  './js/ui/history.js',
+  './js/ui/settings.js',
+];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
-  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('expiry-shell-') && k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
   );
-  self.clients.claim();
 });
 
+// Same-origin GETs: cache first, network fallback. Other origins (Open Food Facts) pass through.
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET') return;
-  // Leave online lookups (Open Food Facts) alone; only handle this app's own files.
-  if (new URL(e.request.url).origin !== self.location.origin) return;
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    caches.open(CACHE).then(async (cache) => {
-      const hit = await cache.match(e.request);
-      const net = fetch(e.request)
-        .then((res) => {
-          if (res && res.ok) cache.put(e.request, res.clone());
-          return res;
-        })
-        .catch(() => null);
-      return hit || (await net) || cache.match('./index.html');
-    })
+    caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || fetch(e.request)),
   );
 });

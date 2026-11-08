@@ -1,15 +1,15 @@
 {
-  "name": "Dairy Expiry Log",
-  "short_name": "Expiry Log",
-  "description": "Track expiration dates for dairy deliveries. Works offline.",
-  "start_url": "./",
+  "name": "Expiry Tracker",
+  "short_name": "Expiry",
+  "description": "Weekly sweep log for soon-to-expire items",
+  "start_url": "./#due",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f2f5f7",
-  "theme_color": "#0a5ca8",
+  "background_color": "#f4f5f7",
+  "theme_color": "#1d4ed8",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

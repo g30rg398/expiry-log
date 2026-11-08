@@ -1,45 +1,60 @@
-# Dairy Expiry Log
+# Expiry Tracker v2 — weekly sweep version
 
-Offline-first expiry tracker for a dairy stocker. No backend, no build step: plain HTML, CSS and JavaScript.
+Single-user, offline PWA for the dairy department. Once a week, walk the case,
+log only the items that expire soon (with a shelf photo), and work the **Due**
+list as the dates come up.
 
-## Files
+## Screens
+- **Check** — Start a sweep, then for each soon-to-expire item: scan/type the barcode,
+  name, date (one-tap chips for the next 7 days), location, and an optional shelf photo.
+  "Keep photo & location" carries the shelf photo to the next item; changing the
+  location drops it. Use **+1 OK** to count items whose dates are fine.
+- **Due** — Open items grouped: Expired / Today / Tomorrow / Next 7 days / Later.
+  Mark each one **Pulled**, **Marked down**, or **Sold out** (all have Undo). Tap the photo to enlarge it.
+- **History** — 30-day totals, resolved items (with Reopen), and past sweeps. These are your numbers for the manager.
+- **Settings** — name, store, department, sweep window (default 10 days), backup export/import.
 
-- `index.html`: the whole app
-- `sw.js`: service worker that makes it work with no signal
-- `manifest.webmanifest`, `icon-192.png`, `icon-512.png`: make it installable on Android
+## Deploy (GitHub Pages, same as before)
+Upload the contents of this folder to the repo root (or a `/v2` folder), then open it in Chrome on Android
+and choose **Install app**. Must be served over HTTPS (Pages does this) for the camera and offline mode to work.
 
-## Host it (free, HTTPS is required for install and offline)
+**After any code change**, bump `VERSION` in `sw.js`. Phones load the new version on the next launch.
 
-**Cloudflare Pages:** create a project, choose "Direct upload", and drop this folder in.
-**GitHub Pages:** put these files in a repo, then Settings > Pages > deploy from the main branch.
+This version uses a new database (`expiry-tracker-v2`), so it won't touch data from Prototype 1.
 
-## Install on Android
+## Structure
 
-1. Open the hosted address in Chrome while you have signal.
-2. Menu > "Install app" (or "Add to Home screen").
-3. Open it once from the home screen. After that it works with no connection.
+```
+index.html, manifest.webmanifest, sw.js, css/, icons/
+js/
+  app.js            tabs + routing
+  data/
+    schema.js       record shapes + sync-ready base fields
+    db.js           IndexedDB wrapper (only repo.js uses it)
+    repo.js         THE data API — the only thing screens call
+  lib/              dates, image resizing, barcode scanner, Open Food Facts lookup
+  ui/               one module per screen: sweep, due, history, settings
+```
 
-## Using it
+### Designed for the multi-user version
+- **Every record** has `id` (UUID), `storeId`, `department`, `createdBy/updatedBy`,
+  `createdAt/updatedAt`, and `deletedAt` (soft delete). Nothing needs migrating to sync.
+- **Screens never touch storage.** They call `repo.entries.add()`, `repo.entries.listOpen()` and so on.
+  To add a backend, reimplement those functions to call the API, keeping IndexedDB as an
+  offline cache plus an outbox of unsent changes. The UI doesn't change.
+- **Photos are separate records**; entries only store `photoId`. On a server they become file uploads.
+- **Merging** (backup import) uses last-write-wins by `updatedAt` per record, the same rule sync will use.
+- **Department scoping** is already applied in every list. `listOpen({ allDepartments: true })`
+  is the hook for a manager view.
 
-- **Receive:** scan or type the barcode, pick the product, set the date on the package and the number of cases. Entering the same product and date again adds to the existing batch.
-- **Pull list:** oldest dates first. Tap Pulled or Sold out. Undo appears for a few seconds.
-- **History:** weekly totals, restore a batch, export or import a backup file.
+### Mapping to PocketBase later
+| Local store | PocketBase collection | Notes |
+|---|---|---|
+| products | `products` | unique (storeId, barcode) |
+| entries | `entries` | relation → products, photos; rule: same store & department |
+| sweeps | `sweeps` | |
+| photos | `photos` | `file` field for blob + thumb |
+| meta.userId/storeId | `users` (auth) / `stores` | role: employee \| manager; department field |
 
-## Vendors and invoices
-
-- **Receive > From invoice:** pick the vendor, tap an item that arrived, enter the date on the package and the number of cases. The pull list then shows "14 cases (56 pieces)".
-- **Item details** (inside each item): the item ID from the invoice, the name, pieces per case, and the UPC. Scan one unit once, or type the UPC, and the link is remembered.
-- **Pieces** are what arrived. The app does not count what has sold, so use the pull list as a hint for what to check.
-- The first run includes the dairy items from the Derle Farms and EcoMeal Organic invoices. Check the item IDs against the paper and fix any that are wrong.
-
-## Product names
-
-- **Your list first:** a scanned barcode you have entered before fills in the name automatically.
-- **Online lookup:** for a new barcode, the app asks Open Food Facts (free, crowdsourced) when you have signal and fills in a suggested name if the field is empty. Check it before adding. With no signal, or no match, type the name once and the app remembers it.
-- **Import a list:** History > Product list > Import product list. Use a CSV (save from Excel with "CSV") with one column of barcodes and one of names. Existing products are kept. Excel can turn long barcodes into 7.89E+11, so format that column as Text before saving.
-
-## Notes
-
-- Data is stored in the browser on that phone only. Export a backup every so often.
-- Barcode scanning uses the browser's built-in detector (Chrome on Android). If it is missing, type the barcode.
-- To ship an update, change `CACHE` in `sw.js` (for example to `expiry-log-v2`) and redeploy.
+Still to add then: a login screen, a department switcher for managers, and a sync loop
+(push the outbox, pull records with `updated > lastSync`).
