@@ -14,7 +14,8 @@ import {
 
 const DEFAULT_SETTINGS = {
   userName: '',
-  storeName: 'My store',
+  storeName: '',
+  lang: '',        // '' = follow the phone's language
   department: '',  // key of "my" department; '' until one is created
   dueView: 'mine', // 'mine' | 'all' — Due tab filter
   cutoffDays: 10,  // log items expiring within this many days of the sweep
@@ -269,8 +270,8 @@ export const backup = {
     };
   },
   async import(data) {
-    if (data?.format !== 'expiry-tracker-backup') throw new Error('Not a backup file from this app');
-    if (data.schemaVersion > SCHEMA_VERSION) throw new Error('Backup is from a newer app version');
+    if (data?.format !== 'expiry-tracker-backup') throw Object.assign(new Error('Not a backup file from this app'), { code: 'format' });
+    if (data.schemaVersion > SCHEMA_VERSION) throw Object.assign(new Error('Backup is from a newer app version'), { code: 'newer' });
     const counts = { added: 0, updated: 0, skipped: 0 };
     // Single-store for now: every phone makes its own random storeId, so
     // imported records are re-labelled with this phone's storeId to stay visible.

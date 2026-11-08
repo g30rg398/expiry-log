@@ -1,14 +1,28 @@
-// "Settings" screen: profile, sweep cutoff, backup/restore.
+// "Settings" screen: language, profile, sweep window, backup/restore.
 
 import { h, toast, confirmDialog } from './dom.js';
 import { settingsRepo, backup } from '../data/repo.js';
 import { todayISO } from '../lib/dates.js';
 import { picker } from './departments.js';
+import { t, LANGUAGES, getLang, setLang } from '../i18n/index.js';
+
+export const APP_VERSION = 'v2.2.0';
 
 export async function render(root, app) {
   const s = settingsRepo.get();
-  const userName = h('input', { value: s.userName, placeholder: 'Your name' });
-  const storeName = h('input', { value: s.storeName });
+
+  // Language applies immediately (no Save needed), like the department picker.
+  const langSelect = h('select', {},
+    LANGUAGES.map((l) => h('option', { value: l.code, selected: l.code === getLang() }, l.name)));
+  langSelect.addEventListener('change', async () => {
+    await settingsRepo.update({ lang: langSelect.value });
+    setLang(langSelect.value);
+    app.rebuildNav();
+    app.refresh();
+  });
+
+  const userName = h('input', { value: s.userName, placeholder: t('set.name') });
+  const storeName = h('input', { value: s.storeName, placeholder: t('set.storeDefault') });
   const deptPicker = await picker(app);
   const cutoff = h('input', { type: 'number', min: '1', max: '60', value: String(s.cutoffDays) });
 
@@ -18,19 +32,20 @@ export async function render(root, app) {
       e.preventDefault();
       await settingsRepo.update({
         userName: userName.value.trim(),
-        storeName: storeName.value.trim() || 'My store',
+        storeName: storeName.value.trim(),
         cutoffDays: Math.max(1, Math.min(60, Number(cutoff.value) || 10)),
       });
-      toast('Settings saved');
+      toast(t('set.saved'));
       app.refresh();
     },
   },
-  h('h2', {}, 'Profile'),
-  field('Your name', userName),
-  field('Store', storeName),
-  field('My department', deptPicker, h('small', { class: 'muted hint' }, 'New items are logged here. Changes apply right away.')),
-  field('Sweep window (days)', cutoff, h('small', { class: 'muted hint' }, 'Log items expiring within this many days.')),
-  h('button', { type: 'submit', class: 'btn wide' }, 'Save'));
+  h('h2', {}, t('set.profile')),
+  field(t('set.language'), langSelect),
+  field(t('set.name'), userName),
+  field(t('set.store'), storeName),
+  field(t('set.dept'), deptPicker, h('small', { class: 'muted hint' }, t('set.deptHint'))),
+  field(t('set.window'), cutoff, h('small', { class: 'muted hint' }, t('set.windowHint'))),
+  h('button', { type: 'submit', class: 'btn wide' }, t('common.save')));
 
   const fileIn = h('input', { type: 'file', accept: 'application/json,.json', hidden: true });
   fileIn.addEventListener('change', async () => {
@@ -39,41 +54,45 @@ export async function render(root, app) {
     if (!f) return;
     try {
       const counts = await backup.import(JSON.parse(await f.text()));
-      toast(`Restored: ${counts.added} new, ${counts.updated} updated`);
+      toast(t('set.restored', { added: counts.added, updated: counts.updated }));
       app.refresh();
     } catch (err) {
-      toast(`Import failed: ${err.message}`);
+      const msg = err.code === 'format' ? t('set.errFormat') : err.code === 'newer' ? t('set.errNewer')
+        : err instanceof SyntaxError ? t('set.errFormat') : err.message;
+      toast(t('set.importFailed', { msg }));
     }
   });
 
   const storageInfo = h('p', { class: 'muted' });
   if (navigator.storage?.estimate) {
     Promise.all([navigator.storage.estimate(), navigator.storage.persisted?.()]).then(([est, persisted]) => {
-      storageInfo.textContent = `Using ${(est.usage / 1048576).toFixed(1)} MB on this phone. `
-        + (persisted ? 'Storage is protected from automatic clearing.' : 'Install the app to protect storage from clearing.');
+      storageInfo.textContent = `${t('set.storageUsed', { mb: (est.usage / 1048576).toFixed(1) })} `
+        + t(persisted ? 'set.persisted' : 'set.notPersisted');
     });
   }
 
   const data = h('section', { class: 'card' },
-    h('h2', {}, 'Backup'),
-    h('p', { class: 'muted' }, 'Everything lives only on this phone. Export a backup now and then (includes photos).'),
+    h('h2', {}, t('set.backup')),
+    h('p', { class: 'muted' }, t('set.backupHint')),
     storageInfo,
     h('div', { class: 'row' },
-      h('button', { type: 'button', class: 'btn', onclick: doExport }, 'Export backup'),
-      h('button', { type: 'button', class: 'btn secondary', onclick: () => fileIn.click() }, 'Import backup'),
+      h('button', { type: 'button', class: 'btn', onclick: doExport }, t('set.export')),
+      h('button', { type: 'button', class: 'btn secondary', onclick: () => fileIn.click() }, t('set.import')),
       fileIn),
     h('hr'),
     h('button', {
       type: 'button', class: 'btn ghost danger-text', onclick: async () => {
-        if (!(await confirmDialog('Delete ALL data on this phone? Export a backup first.', { ok: 'Delete everything', danger: true }))) return;
+        if (!(await confirmDialog(t('set.wipeConfirm'), { ok: t('set.wipeOk'), danger: true }))) return;
+        const keepLang = getLang();
         await backup.wipe();
-        toast('All data deleted');
+        await settingsRepo.update({ lang: keepLang });
+        toast(t('set.wiped'));
         app.go('sweep');
       },
-    }, 'Delete all data'));
+    }, t('set.wipe')));
 
   root.replaceChildren(profile, data,
-    h('p', { class: 'muted center small' }, 'Expiry Tracker v2.1.0 · data stays on your device'));
+    h('p', { class: 'muted center small' }, t('set.footer', { v: APP_VERSION })));
 }
 
 async function doExport() {

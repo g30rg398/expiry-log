@@ -1,7 +1,7 @@
 // Offline cache for the app shell. Bump VERSION whenever you change any file
 // so phones pick up the new version (it applies on the next app launch).
 
-const VERSION = 'v2.1.0';
+const VERSION = 'v2.2.0';
 const CACHE = `expiry-shell-${VERSION}`;
 const SHELL = [
   './',
@@ -18,6 +18,10 @@ const SHELL = [
   './js/lib/images.js',
   './js/lib/scanner.js',
   './js/lib/lookup.js',
+  './js/i18n/index.js',
+  './js/i18n/en.js',
+  './js/i18n/uk.js',
+  './js/i18n/ru.js',
   './js/ui/dom.js',
   './js/ui/departments.js',
   './js/ui/sweep.js',

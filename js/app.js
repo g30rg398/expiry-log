@@ -1,41 +1,47 @@
 // App shell: tabs + routing. Each screen module exports render(root, app).
 
-import { init } from './data/repo.js';
+import { init, settingsRepo } from './data/repo.js';
 import { h } from './ui/dom.js';
+import { t, setLang, detectLang } from './i18n/index.js';
 import * as sweep from './ui/sweep.js';
 import * as due from './ui/due.js';
 import * as history from './ui/history.js';
 import * as settings from './ui/settings.js';
 
 const TABS = [
-  { id: 'sweep', label: 'Check', icon: '＋', view: sweep },
-  { id: 'due', label: 'Due', icon: '⏰', view: due },
-  { id: 'history', label: 'History', icon: '📊', view: history },
-  { id: 'settings', label: 'Settings', icon: '⚙', view: settings },
+  { id: 'sweep', label: 'tab.check', icon: '＋', view: sweep },
+  { id: 'due', label: 'tab.due', icon: '⏰', view: due },
+  { id: 'history', label: 'tab.history', icon: '📊', view: history },
+  { id: 'settings', label: 'tab.settings', icon: '⚙', view: settings },
 ];
 
 const root = document.getElementById('view');
 const nav = document.getElementById('tabs');
+const header = document.querySelector('.top h1');
 let current = 'due';
 
 const app = {
   async go(id) {
-    current = TABS.some((t) => t.id === id) ? id : 'due';
-    if (location.hash !== `#${current}`) history_replace(current);
+    current = TABS.some((tab) => tab.id === id) ? id : 'due';
+    if (location.hash !== `#${current}`) window.history.replaceState(null, '', `#${current}`);
     await app.refresh();
     window.scrollTo(0, 0);
   },
   async refresh() {
-    const tab = TABS.find((t) => t.id === current);
+    const tab = TABS.find((x) => x.id === current);
     nav.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.tab === current));
     await tab.view.render(root, app);
     await updateBadge();
   },
+  // Re-draw tab labels and header after a language change.
+  rebuildNav() {
+    header.textContent = t('app.title');
+    nav.replaceChildren(...TABS.map((tab) => h('button', {
+      type: 'button', dataset: { tab: tab.id }, onclick: () => app.go(tab.id),
+    }, h('span', { class: 'ico' }, tab.icon), h('span', {}, t(tab.label)),
+    tab.id === 'due' ? h('span', { class: 'badge', hidden: true }) : null)));
+  },
 };
-
-function history_replace(id) {
-  window.history.replaceState(null, '', `#${id}`);
-}
 
 async function updateBadge() {
   const n = await due.urgentCount();
@@ -49,13 +55,12 @@ async function start() {
   try {
     await init();
   } catch (err) {
-    root.replaceChildren(h('p', { class: 'card' }, `Could not open storage: ${err.message}`));
+    setLang(detectLang());
+    root.replaceChildren(h('p', { class: 'card' }, t('app.storageError', { msg: err.message })));
     return;
   }
-  nav.replaceChildren(...TABS.map((t) => h('button', {
-    type: 'button', dataset: { tab: t.id }, onclick: () => app.go(t.id),
-  }, h('span', { class: 'ico' }, t.icon), h('span', {}, t.label), t.id === 'due' ? h('span', { class: 'badge', hidden: true }) : null)));
-
+  setLang(settingsRepo.get().lang || detectLang());
+  app.rebuildNav();
   await app.go(location.hash.slice(1) || 'due');
 
   // Dates roll over at midnight; refresh when the app comes back to the foreground.

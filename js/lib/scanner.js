@@ -3,6 +3,8 @@
 // falls back to typing. A ZXing-based scanner can be dropped in here later
 // with the same scan() signature.
 
+import { t } from '../i18n/index.js';
+
 const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'];
 
 export const isSupported = () => 'BarcodeDetector' in window && !!navigator.mediaDevices?.getUserMedia;
@@ -20,8 +22,8 @@ export async function scan() {
   dlg.innerHTML = `
     <video playsinline muted></video>
     <div class="scan-frame"></div>
-    <p class="scan-hint">Point at the barcode</p>
-    <button type="button" class="btn secondary scan-cancel">Cancel</button>`;
+    <p class="scan-hint">${t('scan.hint')}</p>
+    <button type="button" class="btn secondary scan-cancel">${t('common.cancel')}</button>`;
   document.body.append(dlg);
   const video = dlg.querySelector('video');
   video.srcObject = stream;

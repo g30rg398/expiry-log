@@ -1,3 +1,5 @@
+import { t } from '../i18n/index.js';
+
 // Tiny DOM helpers. User text is always set via textContent (never innerHTML).
 
 export function h(tag, attrs = {}, ...children) {
@@ -43,11 +45,11 @@ export function modal(build, { className = '' } = {}) {
   });
 }
 
-export function confirmDialog(message, { ok = 'OK', danger = false } = {}) {
+export function confirmDialog(message, { ok = t('common.ok'), danger = false } = {}) {
   return modal((close) => h('div', { class: 'modal-body' },
     h('p', {}, message),
     h('div', { class: 'row end' },
-      h('button', { type: 'button', class: 'btn secondary', onclick: () => close(false) }, 'Cancel'),
+      h('button', { type: 'button', class: 'btn secondary', onclick: () => close(false) }, t('common.cancel')),
       h('button', { type: 'button', class: `btn ${danger ? 'danger' : ''}`, onclick: () => close(true) }, ok))));
 }
 

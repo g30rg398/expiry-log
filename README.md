@@ -17,6 +17,13 @@ list as the dates come up.
 - **Due → All departments** — once there are 2+ departments, a switch at the top of Due shows every
   department in its own collapsible block (yours first), each with its own urgency groups.
 
+## Languages
+English, Українська, Русский — chosen in Settings → Language (defaults to the phone's language).
+All app text lives in `js/i18n/{en,uk,ru}.js`; screens call `t('key', { params })`.
+Plurals use `{ one, few, many, other }` objects (Intl.PluralRules). To fix a translation, edit
+only the dictionary file. To add a language, copy `en.js`, translate it, and register it in `js/i18n/index.js`.
+User-typed text (products, departments, locations) is never translated.
+
 ## Deploy (GitHub Pages, same as before)
 Upload the contents of this folder to the repo root (or a `/v2` folder), then open it in Chrome on Android
 and choose **Install app**. Must be served over HTTPS (Pages does this) for the camera and offline mode to work.
@@ -31,6 +38,7 @@ This version uses a new database (`expiry-tracker-v2`), so it won't touch data f
 index.html, manifest.webmanifest, sw.js, css/, icons/
 js/
   app.js            tabs + routing
+  i18n/             translations (index.js + en/uk/ru dictionaries)
   data/
     schema.js       record shapes + sync-ready base fields
     db.js           IndexedDB wrapper (only repo.js uses it)

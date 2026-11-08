@@ -1,3 +1,5 @@
+import { t, locale } from '../i18n/index.js';
+
 // Dates are stored as local 'YYYY-MM-DD' strings (what's printed on the package).
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -24,18 +26,25 @@ export function daysUntil(iso) {
 
 export function relLabel(iso) {
   const n = daysUntil(iso);
-  if (n < -1) return `${-n} days ago`;
-  if (n === -1) return 'yesterday';
-  if (n === 0) return 'today';
-  if (n === 1) return 'tomorrow';
-  return `in ${n} days`;
+  if (n < -1) return t('date.daysAgo', { n: -n });
+  if (n === -1) return t('date.yesterday');
+  if (n === 0) return t('date.today');
+  if (n === 1) return t('date.tomorrow');
+  return t('date.inDays', { n });
 }
 
+const parse = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
+
 export function fmtDate(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  return parse(iso).toLocaleDateString(locale(), { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+// Short chip label like "Mon 9" / "пн 9".
+export function fmtChip(iso) {
+  const d = parse(iso);
+  return `${d.toLocaleDateString(locale(), { weekday: 'short' })} ${d.getDate()}`;
 }
 
 export function fmtDateTime(isoTs) {
-  return new Date(isoTs).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return new Date(isoTs).toLocaleString(locale(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }

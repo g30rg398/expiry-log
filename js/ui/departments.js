@@ -2,12 +2,13 @@
 
 import { h, toast } from './dom.js';
 import { departments, settingsRepo } from '../data/repo.js';
+import { t } from '../i18n/index.js';
 
 const NEW = '__new__';
 
 // Shown when no department has been created yet.
 export function setupCard(app) {
-  const input = h('input', { placeholder: 'e.g. Dairy', autocomplete: 'off', required: true });
+  const input = h('input', { placeholder: t('dept.placeholder'), autocomplete: 'off', required: true });
   return h('form', {
     class: 'card form',
     onsubmit: async (e) => {
@@ -15,14 +16,14 @@ export function setupCard(app) {
       if (!input.value.trim()) return;
       const d = await departments.create(input.value);
       await departments.select(d.key);
-      toast(`Department "${d.name}" created`);
+      toast(t('dept.created', { name: d.name }));
       app.refresh();
     },
   },
-  h('h2', {}, 'Create your department'),
-  h('p', { class: 'muted' }, 'Items are tracked per department. Start with the one you work in; you can add more later in Settings.'),
+  h('h2', {}, t('dept.createTitle')),
+  h('p', { class: 'muted' }, t('dept.createHint')),
   input,
-  h('button', { type: 'submit', class: 'btn wide' }, 'Create'));
+  h('button', { type: 'submit', class: 'btn wide' }, t('dept.create')));
 }
 
 // <select> of existing departments + "New department…", applied immediately.
@@ -31,9 +32,9 @@ export async function picker(app) {
   const current = settingsRepo.get().department;
   const select = h('select', {},
     list.map((d) => h('option', { value: d.key, selected: d.key === current }, d.name)),
-    h('option', { value: NEW }, '＋ New department…'));
+    h('option', { value: NEW }, t('dept.new')));
 
-  const newInput = h('input', { placeholder: 'New department name', autocomplete: 'off' });
+  const newInput = h('input', { placeholder: t('dept.newPh'), autocomplete: 'off' });
   const newRow = h('div', { class: 'row', hidden: list.length > 0 },
     newInput,
     h('button', {
@@ -41,19 +42,19 @@ export async function picker(app) {
         if (!newInput.value.trim()) { newInput.focus(); return; }
         const d = await departments.create(newInput.value);
         await departments.select(d.key);
-        toast(`Switched to ${d.name}`);
+        toast(t('dept.switched', { name: d.name }));
         app.refresh();
       },
-    }, 'Add'),
+    }, t('common.add')),
     h('button', {
       type: 'button', class: 'btn ghost', onclick: () => { select.value = current; newRow.hidden = true; },
-    }, 'Cancel'));
+    }, t('common.cancel')));
 
   select.addEventListener('change', async () => {
     if (select.value === NEW) { newRow.hidden = false; newInput.focus(); return; }
     newRow.hidden = true;
     await departments.select(select.value);
-    toast(`Switched to ${select.selectedOptions[0].textContent}`);
+    toast(t('dept.switched', { name: select.selectedOptions[0].textContent }));
     app.refresh();
   });
 

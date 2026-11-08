@@ -3,15 +3,16 @@
 import { h, toast, modal, blobURL, confirmDialog } from './dom.js';
 import { entries, photos, departments, settingsRepo } from '../data/repo.js';
 import { setupCard } from './departments.js';
-import { STATUS, STATUS_LABEL } from '../data/schema.js';
+import { STATUS } from '../data/schema.js';
+import { t } from '../i18n/index.js';
 import { daysUntil, relLabel, fmtDate } from '../lib/dates.js';
 
 const GROUPS = [
-  { key: 'expired', title: 'Expired — pull now', test: (n) => n < 0, cls: 'bad' },
-  { key: 'today', title: 'Today', test: (n) => n === 0, cls: 'bad' },
-  { key: 'tomorrow', title: 'Tomorrow', test: (n) => n === 1, cls: 'warn' },
-  { key: 'week', title: 'Next 7 days', test: (n) => n >= 2 && n <= 7, cls: 'warn' },
-  { key: 'later', title: 'Later', test: (n) => n > 7, cls: '' },
+  { key: 'expired', title: 'due.expired', test: (n) => n < 0, cls: 'bad' },
+  { key: 'today', title: 'due.today', test: (n) => n === 0, cls: 'bad' },
+  { key: 'tomorrow', title: 'due.tomorrow', test: (n) => n === 1, cls: 'warn' },
+  { key: 'week', title: 'due.week', test: (n) => n >= 2 && n <= 7, cls: 'warn' },
+  { key: 'later', title: 'due.later', test: (n) => n > 7, cls: '' },
 ];
 
 // "All departments" is a view filter here, not a setting: logging always needs one department.
@@ -37,8 +38,8 @@ export async function render(root, app) {
   if (!open.length) {
     out.push(h('section', { class: 'empty' },
       h('p', { class: 'big' }, '✓'),
-      h('p', {}, 'Nothing being watched.'),
-      h('p', { class: 'muted' }, 'Items you log during a sweep show up here, soonest first.')));
+      h('p', {}, t('due.emptyTitle')),
+      h('p', { class: 'muted' }, t('due.emptyHint'))));
     root.replaceChildren(...out);
     return;
   }
@@ -53,9 +54,9 @@ export async function render(root, app) {
       const urgent = rows.filter((e) => daysUntil(e.expiresOn) <= 1).length;
       const block = h('details', { class: 'dept-block', open: rows.length > 0 },
         h('summary', {},
-          h('span', { class: 'dept-name' }, d.name, d === mine ? h('span', { class: 'pill' }, 'mine') : null),
-          h('span', { class: 'muted small' }, rows.length ? `${rows.length} open` : 'nothing open'),
-          urgent ? h('span', { class: 'badge-inline' }, `${urgent} urgent`) : null));
+          h('span', { class: 'dept-name' }, d.name, d === mine ? h('span', { class: 'pill' }, t('due.mine')) : null),
+          h('span', { class: 'muted small' }, rows.length ? t('due.open', { n: rows.length }) : t('due.nothingOpen')),
+          urgent ? h('span', { class: 'badge-inline' }, t('due.urgent', { n: urgent })) : null));
       if (rows.length) block.append(...(await urgencyGroups(rows, app, 'h3')));
       out.push(block);
     }
@@ -67,7 +68,7 @@ function viewSwitch(myName, all, app) {
   const set = (v) => async () => { await settingsRepo.update({ dueView: v }); app.refresh(); };
   return h('div', { class: 'segmented' },
     h('button', { type: 'button', class: all ? '' : 'on', onclick: set('mine') }, myName),
-    h('button', { type: 'button', class: all ? 'on' : '', onclick: set('all') }, 'All departments'));
+    h('button', { type: 'button', class: all ? 'on' : '', onclick: set('all') }, t('due.all')));
 }
 
 async function urgencyGroups(rows, app, tag) {
@@ -77,7 +78,7 @@ async function urgencyGroups(rows, app, tag) {
     if (!sub.length) continue;
     const cards = await Promise.all(sub.map((e) => card(e, g, app)));
     sections.push(h('section', { class: `group ${g.cls}` },
-      h(tag, { class: 'group-title' }, g.title, h('span', { class: 'count' }, String(sub.length))),
+      h(tag, { class: 'group-title' }, t(g.title), h('span', { class: 'count' }, String(sub.length))),
       cards));
   }
   return sections;
@@ -87,15 +88,15 @@ async function card(e, g, app) {
   const photo = await photos.get(e.photoId);
   const thumb = photo
     ? h('img', {
-      class: 'thumb', src: blobURL(photo.id + ':t', photo.thumb || photo.blob), alt: 'Shelf photo',
+      class: 'thumb', src: blobURL(photo.id + ':t', photo.thumb || photo.blob), alt: t('log.photoAlt'),
       onclick: () => showPhoto(photo, e),
     })
     : h('div', { class: 'thumb none' }, '—');
 
   const resolve = (status) => async () => {
     await entries.resolve(e.id, status);
-    toast(`${STATUS_LABEL[status]}: ${e.productName}`, {
-      action: 'Undo',
+    toast(t('due.statusToast', { status: t(`status.${status}`), name: e.productName }), {
+      action: t('common.undo'),
       onAction: async () => { await entries.reopen(e.id); app.refresh(); },
     });
     app.refresh();
@@ -111,15 +112,15 @@ async function card(e, g, app) {
       e.location ? h('div', { class: 'meta' }, '📍 ', e.location) : null,
       e.note ? h('div', { class: 'meta muted' }, e.note) : null,
       h('div', { class: 'actions' },
-        h('button', { type: 'button', class: 'btn small', onclick: resolve(STATUS.PULLED) }, 'Pulled'),
-        h('button', { type: 'button', class: 'btn small secondary', onclick: resolve(STATUS.MARKED_DOWN) }, 'Marked down'),
-        h('button', { type: 'button', class: 'btn small secondary', onclick: resolve(STATUS.SOLD_OUT) }, 'Sold out'),
-        h('button', { type: 'button', class: 'btn small ghost', onclick: () => edit(e, app), 'aria-label': 'Edit' }, '✎'))));
+        h('button', { type: 'button', class: 'btn small', onclick: resolve(STATUS.PULLED) }, t('status.pulled')),
+        h('button', { type: 'button', class: 'btn small secondary', onclick: resolve(STATUS.MARKED_DOWN) }, t('status.marked_down')),
+        h('button', { type: 'button', class: 'btn small secondary', onclick: resolve(STATUS.SOLD_OUT) }, t('status.sold_out')),
+        h('button', { type: 'button', class: 'btn small ghost', onclick: () => edit(e, app), 'aria-label': t('due.edit') }, '✎'))));
 }
 
 function showPhoto(photo, e) {
   modal((close) => h('div', { class: 'photo-full', onclick: () => close() },
-    h('img', { src: blobURL(photo.id, photo.blob), alt: 'Shelf photo' }),
+    h('img', { src: blobURL(photo.id, photo.blob), alt: t('log.photoAlt') }),
     h('p', {}, e.productName, e.location ? ` — ${e.location}` : '')), { className: 'photo-modal' });
 }
 
@@ -134,15 +135,15 @@ async function edit(e, app) {
     onsubmit: (ev) => { ev.preventDefault(); close('save'); },
   },
   h('h2', {}, e.productName),
-  h('label', { class: 'field' }, h('span', { class: 'label' }, 'Expires'), date),
-  h('label', { class: 'field' }, h('span', { class: 'label' }, 'Qty'), qty),
-  h('label', { class: 'field' }, h('span', { class: 'label' }, 'Location'), loc),
-  h('label', { class: 'field' }, h('span', { class: 'label' }, 'Note'), note),
+  h('label', { class: 'field' }, h('span', { class: 'label' }, t('log.expires')), date),
+  h('label', { class: 'field' }, h('span', { class: 'label' }, t('log.qty')), qty),
+  h('label', { class: 'field' }, h('span', { class: 'label' }, t('log.location')), loc),
+  h('label', { class: 'field' }, h('span', { class: 'label' }, t('log.note')), note),
   h('div', { class: 'row between' },
-    h('button', { type: 'button', class: 'btn ghost danger-text', onclick: () => close('delete') }, 'Delete'),
+    h('button', { type: 'button', class: 'btn ghost danger-text', onclick: () => close('delete') }, t('common.delete')),
     h('div', { class: 'row' },
-      h('button', { type: 'button', class: 'btn secondary', onclick: () => close() }, 'Cancel'),
-      h('button', { type: 'submit', class: 'btn' }, 'Save')))));
+      h('button', { type: 'button', class: 'btn secondary', onclick: () => close() }, t('common.cancel')),
+      h('button', { type: 'submit', class: 'btn' }, t('common.save'))))));
 
   if (result === 'save' && date.value) {
     await entries.update(e.id, {
@@ -151,12 +152,12 @@ async function edit(e, app) {
       location: loc.value.trim(),
       note: note.value.trim(),
     });
-    toast('Updated');
+    toast(t('due.updated'));
     app.refresh();
   } else if (result === 'delete') {
-    if (await confirmDialog(`Delete "${e.productName}"? Use this for mistakes, not for pulled items.`, { ok: 'Delete', danger: true })) {
+    if (await confirmDialog(t('due.deleteConfirm', { name: e.productName }), { ok: t('common.delete'), danger: true })) {
       await entries.remove(e.id);
-      toast('Deleted');
+      toast(t('due.deleted'));
       app.refresh();
     }
   }

@@ -3,7 +3,8 @@
 
 import { h, toast } from './dom.js';
 import { entries, sweeps } from '../data/repo.js';
-import { STATUS, STATUS_LABEL } from '../data/schema.js';
+import { STATUS } from '../data/schema.js';
+import { t } from '../i18n/index.js';
 import { fmtDate, fmtDateTime } from '../lib/dates.js';
 
 export async function render(root, app) {
@@ -14,35 +15,35 @@ export async function render(root, app) {
   const caughtEarly = resolved.filter((e) => e.status === STATUS.MARKED_DOWN || (e.status === STATUS.PULLED && e.resolvedAt.slice(0, 10) <= e.expiresOn)).length;
 
   const stats = h('section', { class: 'card' },
-    h('h2', {}, 'Last 30 days'),
+    h('h2', {}, t('hist.last30')),
     h('div', { class: 'stats' },
-      stat(count(STATUS.PULLED), 'pulled', `${units(STATUS.PULLED)} units`),
-      stat(count(STATUS.MARKED_DOWN), 'marked down', `${units(STATUS.MARKED_DOWN)} units`),
-      stat(count(STATUS.SOLD_OUT), 'sold out', 'before date')),
-    h('p', { class: 'muted' }, `${caughtEarly} item(s) dealt with on or before their date.`));
+      stat(count(STATUS.PULLED), t('status.pulled'), t('hist.units', { n: units(STATUS.PULLED) })),
+      stat(count(STATUS.MARKED_DOWN), t('status.marked_down'), t('hist.units', { n: units(STATUS.MARKED_DOWN) })),
+      stat(count(STATUS.SOLD_OUT), t('status.sold_out'), t('hist.beforeDate'))),
+    h('p', { class: 'muted' }, t('hist.caught', { n: caughtEarly })));
 
-  const list = h('section', { class: 'card' }, h('h2', {}, 'Resolved items'));
-  if (!resolved.length) list.append(h('p', { class: 'muted' }, 'Nothing yet.'));
+  const list = h('section', { class: 'card' }, h('h2', {}, t('hist.resolved')));
+  if (!resolved.length) list.append(h('p', { class: 'muted' }, t('hist.nothing')));
   for (const e of resolved.slice(0, 100)) {
     list.append(h('div', { class: 'hist-row' },
       h('div', {},
         h('strong', {}, e.productName),
-        h('div', { class: 'meta' }, `exp ${fmtDate(e.expiresOn)} · ${STATUS_LABEL[e.status]} ${fmtDateTime(e.resolvedAt)}`)),
+        h('div', { class: 'meta' }, t('hist.row', { date: fmtDate(e.expiresOn), status: t(`status.${e.status}`), when: fmtDateTime(e.resolvedAt) }))),
       h('button', {
         type: 'button', class: 'btn small ghost',
-        onclick: async () => { await entries.reopen(e.id); toast('Moved back to Due'); app.refresh(); },
-      }, 'Reopen')));
+        onclick: async () => { await entries.reopen(e.id); toast(t('hist.reopened')); app.refresh(); },
+      }, t('hist.reopen'))));
   }
 
-  const sw = h('section', { class: 'card' }, h('h2', {}, 'Sweeps'));
-  if (!sweepList.length) sw.append(h('p', { class: 'muted' }, 'No sweeps yet.'));
+  const sw = h('section', { class: 'card' }, h('h2', {}, t('hist.sweeps')));
+  if (!sweepList.length) sw.append(h('p', { class: 'muted' }, t('hist.noSweeps')));
   for (const s of sweepList) {
     const mins = s.finishedAt ? Math.round((Date.parse(s.finishedAt) - Date.parse(s.startedAt)) / 60000) : null;
     sw.append(h('div', { class: 'hist-row' },
       h('div', {},
         h('strong', {}, fmtDateTime(s.startedAt)),
         h('div', { class: 'meta' },
-          `${s.logged} logged · ${s.checkedOk} checked OK · ${mins == null ? 'in progress' : `${mins} min`}`))));
+          t('hist.sweepRow', { logged: s.logged, ok: s.checkedOk, time: mins == null ? t('hist.inProgress') : t('hist.minutes', { n: mins }) })))));
   }
 
   root.replaceChildren(stats, list, sw);
